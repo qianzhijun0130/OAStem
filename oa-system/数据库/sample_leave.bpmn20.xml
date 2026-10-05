@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://www.flowable.org/processdef">
+  <process id="leave_test" name="请假流程" isExecutable="true">
+    <startEvent id="start" name="发起申请"/>
+    <userTask id="deptAudit" name="部门主管审批" flowable:assignee="flowboss"/>
+    <exclusiveGateway id="gate" name="审批结果"/>
+    <userTask id="hrAudit" name="人事审批" flowable:assignee="flowboss"/>
+    <endEvent id="endPass" name="通过"/>
+    <endEvent id="endReject" name="驳回"/>
+
+    <sequenceFlow id="f1" sourceRef="start" targetRef="deptAudit"/>
+    <sequenceFlow id="f2" sourceRef="deptAudit" targetRef="gate"/>
+    <sequenceFlow id="f3" sourceRef="gate" targetRef="hrAudit">
+      <conditionExpression xsi:type="tFormalExpression">${outcome == 'approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f4" sourceRef="gate" targetRef="endReject">
+      <conditionExpression xsi:type="tFormalExpression">${outcome == 'reject'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f5" sourceRef="hrAudit" targetRef="endPass"/>
+  </process>
+</definitions>

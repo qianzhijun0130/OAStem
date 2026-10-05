@@ -1,0 +1,99 @@
+package com.kellen.oa_system.common;
+
+import lombok.Getter;
+
+/**
+ * 统一错误码定义。
+ *
+ * <p>约定：HTTP 状态码沿用标准语义，业务错误使用 1xxx / 5xxx 段，
+ * 前端可依据 code 做分支处理（如 401 跳登录、403 提示无权限）。</p>
+ */
+@Getter
+public enum ErrorCode {
+
+    SUCCESS(200, "操作成功"),
+
+    // ---------- 通用客户端错误 ----------
+    BAD_REQUEST(400, "请求参数错误"),
+    UNAUTHORIZED(401, "未登录或登录已失效"),
+    FORBIDDEN(403, "无权限执行该操作"),
+    NOT_FOUND(404, "资源不存在"),
+    METHOD_NOT_ALLOWED(405, "请求方式不被允许"),
+
+    // ---------- 业务错误：用户与认证 1xxx ----------
+    USERNAME_OR_PASSWORD_ERROR(1001, "用户名或密码错误"),
+    USER_DISABLED(1002, "账号已被禁用，请联系管理员"),
+    USER_LOCKED(1003, "账号已被锁定，请联系管理员"),
+    USER_NOT_FOUND(1004, "用户不存在"),
+    TOKEN_INVALID(1005, "令牌无效或已过期"),
+    TOKEN_NOT_PROVIDED(1006, "缺少访问令牌"),
+    PASSWORD_NOT_MATCH(1007, "原密码不正确"),
+    USERNAME_DUPLICATE(1108, "登录账号已存在"),
+    WORK_NUMBER_DUPLICATE(1109, "工号已存在"),
+    USER_CANNOT_OPERATE_SELF(1110, "不能删除或禁用当前登录账号"),
+    USER_IMPORT_FILE_INVALID(1111, "导入文件格式不正确，请下载系统模板后重新填写"),
+    USER_IMPORT_EMPTY(1112, "导入文件中没有可导入的数据"),
+    WORK_NUMBER_GENERATE_FAILED(1113, "工号生成失败，请联系管理员检查部门工号前缀"),
+
+    // ---------- 业务错误：组织架构与权限 2xxx ----------
+    DEPT_NOT_FOUND(2001, "部门不存在"),
+    DEPT_CODE_DUPLICATE(2002, "部门编码已存在"),
+    DEPT_HAS_CHILDREN(2003, "存在下级部门，不能删除"),
+    DEPT_HAS_USER(2004, "部门下存在用户，不能删除"),
+    DEPT_PARENT_INVALID(2005, "上级部门不能是自身或其下级"),
+    DEPT_WORK_NO_PREFIX_DUPLICATE(2006, "工号前缀已被其他部门使用，请更换"),
+    DEPT_DISABLED(2007, "部门已停用，请选择启用状态的部门"),
+    ROLE_NOT_FOUND(2101, "角色不存在"),
+    ROLE_CODE_DUPLICATE(2102, "角色编码已存在"),
+    ROLE_IN_USE(2103, "角色下存在用户，不能删除"),
+    MENU_NOT_FOUND(2201, "菜单不存在"),
+    MENU_HAS_CHILDREN(2202, "存在下级菜单，不能删除"),
+    MENU_CODE_DUPLICATE(2203, "菜单权限标识已存在"),
+    MENU_TYPE_INVALID(2204, "菜单类型不合法"),
+    MENU_FIELDS_INVALID(2205, "菜单配置不完整"),
+
+    // ---------- 业务错误：数据字典 23xx ----------
+    DICT_TYPE_NOT_FOUND(2301, "字典类型不存在"),
+    DICT_TYPE_DUPLICATE(2302, "字典类型编码已存在"),
+    DICT_TYPE_HAS_DATA(2303, "该字典类型下存在数据项，请先删除数据项"),
+    DICT_DATA_NOT_FOUND(2311, "字典数据项不存在"),
+    DICT_DATA_DUPLICATE(2312, "该字典类型下数据值已存在"),
+    NOTICE_NOT_FOUND(2401, "公告不存在"),
+    NOTICE_STATUS_ILLEGAL(2402, "当前公告状态不允许该操作"),
+    NOTICE_NOT_PUBLISHED(2403, "公告尚未发布"),
+    NOTICE_PUBLISHED_CANNOT_EDIT(2404, "已发布的公告不能修改内容，请先下架"),
+    NOTICE_SCOPE_REQUIRED(2405, "指定发布范围时至少要选择一个部门或人员"),
+
+    // ---------- 业务错误：流程引擎与审批 3xxx ----------
+    FLOW_DEF_NOT_FOUND(3001, "流程模板不存在"),
+    FLOW_DEF_DUPLICATE(3002, "流程编码已存在"),
+    FLOW_DEF_DISABLED(3003, "流程模板已停用，无法发起申请"),
+    FLOW_NOT_DEPLOYED(3004, "流程定义尚未部署，无法发起申请"),
+    FLOW_BPMN_INVALID(3005, "BPMN 文件解析失败或缺少必要节点"),
+    FLOW_KEY_CONFLICT(3006, "流程标识已被其他流程模板占用"),
+    FLOW_DEF_IN_USE(3007, "该流程模板下存在未结束的审批实例，无法删除"),
+    INSTANCE_NOT_FOUND(3101, "审批单不存在"),
+    INSTANCE_ALREADY_DONE(3102, "审批单已结束，无法操作"),
+    TASK_NOT_FOUND(3103, "审批任务不存在"),
+    TASK_NOT_CANDIDATE(3104, "当前用户不是该任务的审批人"),
+    INSTANCE_CANNOT_WITHDRAW(3105, "仅审批中的申请可以撤销"),
+
+    // ---------- 业务错误：文件存储 4xxx ----------
+    FILE_EMPTY(4001, "上传文件不能为空"),
+    FILE_TYPE_NOT_ALLOWED(4002, "不支持的文件类型"),
+    FILE_SIZE_EXCEEDED(4003, "文件大小超出限制"),
+    FILE_NOT_FOUND(4004, "文件不存在或已被删除"),
+    FILE_UPLOAD_FAILED(4005, "文件上传失败，请稍后重试"),
+    FILE_PATH_INVALID(4006, "文件路径非法"),
+
+    // ---------- 系统错误 5xxx ----------
+    SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
+
+    private final Integer code;
+    private final String message;
+
+    ErrorCode(Integer code, String message) {
+        this.code = code;
+        this.message = message;
+    }
+}

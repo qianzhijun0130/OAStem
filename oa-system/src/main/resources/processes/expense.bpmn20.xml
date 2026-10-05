@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  内置样例：报销申请。
+  本例演示「自定义扩展元素」写法（等价于 flowable:candidateUsers / candidateGroups）：
+    <oa:assignee type="leader"/>        → 部门主管
+    <oa:assignee type="role" value="5"/> → 指定角色（5 = 财务专员）
+    <oa:assignee type="user" value="1,2"/> → 指定人员（支持逗号分隔多个）
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:oa="http://oastem.com/bpmn"
+             targetNamespace="http://oastem.com/bpmn"
+             exporter="OAStem" exporterVersion="1.0">
+  <process id="expense" name="报销申请" isExecutable="true">
+    <startEvent id="startEvent" name="发起报销"/>
+    <userTask id="deptLeaderAudit" name="部门主管审批">
+      <extensionElements>
+        <oa:assignee type="leader"/>
+      </extensionElements>
+    </userTask>
+    <userTask id="financeAudit" name="财务审批">
+      <extensionElements>
+        <oa:assignee type="role" value="5"/>
+      </extensionElements>
+    </userTask>
+    <endEvent id="endApproved" name="审批通过"/>
+
+    <sequenceFlow id="flowStart" sourceRef="startEvent" targetRef="deptLeaderAudit"/>
+    <sequenceFlow id="flowDeptToFinance" sourceRef="deptLeaderAudit" targetRef="financeAudit"/>
+    <sequenceFlow id="flowFinish" sourceRef="financeAudit" targetRef="endApproved"/>
+  </process>
+
+  <bpmndi:BPMNDiagram id="diagram_expense">
+    <bpmndi:BPMNPlane id="plane_expense" bpmnElement="expense">
+      <bpmndi:BPMNShape id="shape_startEvent" bpmnElement="startEvent">
+        <dc:Bounds x="180" y="200" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_deptLeaderAudit" bpmnElement="deptLeaderAudit">
+        <dc:Bounds x="270" y="178" width="120" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_financeAudit" bpmnElement="financeAudit">
+        <dc:Bounds x="440" y="178" width="120" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endApproved" bpmnElement="endApproved">
+        <dc:Bounds x="620" y="200" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="edge_flowStart" bpmnElement="flowStart">
+        <di:waypoint x="216" y="218"/>
+        <di:waypoint x="270" y="218"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowDeptToFinance" bpmnElement="flowDeptToFinance">
+        <di:waypoint x="390" y="218"/>
+        <di:waypoint x="440" y="218"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowFinish" bpmnElement="flowFinish">
+        <di:waypoint x="560" y="218"/>
+        <di:waypoint x="620" y="218"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

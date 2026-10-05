@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  内置样例：请假申请。
+  审批人约定（详见 BpmnXmlParser）：
+    flowable:candidateGroups="leader"  → 部门主管（取发起人所在部门的负责人）
+    flowable:candidateGroups="role:4"  → 指定角色（4 = HR专员）
+  驳回由后端直接终止流程，这里的网关分支用于示意「通过」路径。
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://oastem.com/bpmn"
+             exporter="OAStem" exporterVersion="1.0">
+  <process id="leave" name="请假申请" isExecutable="true">
+    <startEvent id="startEvent" name="发起申请"/>
+    <userTask id="deptLeaderAudit" name="部门主管审批" flowable:candidateGroups="leader"/>
+    <exclusiveGateway id="approveGateway" name="是否通过" default="flowReject"/>
+    <userTask id="hrAudit" name="人事审批" flowable:candidateGroups="role:4"/>
+    <endEvent id="endApproved" name="审批通过"/>
+    <endEvent id="endRejected" name="已驳回"/>
+
+    <sequenceFlow id="flowStart" sourceRef="startEvent" targetRef="deptLeaderAudit"/>
+    <sequenceFlow id="flowToGateway" sourceRef="deptLeaderAudit" targetRef="approveGateway"/>
+    <sequenceFlow id="flowApprove" sourceRef="approveGateway" targetRef="hrAudit">
+      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${outcome == 'approve'}]]></conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowReject" sourceRef="approveGateway" targetRef="endRejected"/>
+    <sequenceFlow id="flowFinish" sourceRef="hrAudit" targetRef="endApproved"/>
+  </process>
+
+  <bpmndi:BPMNDiagram id="diagram_leave">
+    <bpmndi:BPMNPlane id="plane_leave" bpmnElement="leave">
+      <bpmndi:BPMNShape id="shape_startEvent" bpmnElement="startEvent">
+        <dc:Bounds x="180" y="200" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_deptLeaderAudit" bpmnElement="deptLeaderAudit">
+        <dc:Bounds x="270" y="178" width="120" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_approveGateway" bpmnElement="approveGateway">
+        <dc:Bounds x="440" y="193" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_hrAudit" bpmnElement="hrAudit">
+        <dc:Bounds x="540" y="178" width="120" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endApproved" bpmnElement="endApproved">
+        <dc:Bounds x="710" y="200" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endRejected" bpmnElement="endRejected">
+        <dc:Bounds x="447" y="320" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="edge_flowStart" bpmnElement="flowStart">
+        <di:waypoint x="216" y="218"/>
+        <di:waypoint x="270" y="218"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowToGateway" bpmnElement="flowToGateway">
+        <di:waypoint x="390" y="218"/>
+        <di:waypoint x="440" y="218"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowApprove" bpmnElement="flowApprove">
+        <di:waypoint x="490" y="218"/>
+        <di:waypoint x="540" y="218"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowReject" bpmnElement="flowReject">
+        <di:waypoint x="465" y="243"/>
+        <di:waypoint x="465" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowFinish" bpmnElement="flowFinish">
+        <di:waypoint x="660" y="218"/>
+        <di:waypoint x="710" y="218"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

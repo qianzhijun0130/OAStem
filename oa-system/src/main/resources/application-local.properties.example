@@ -1,0 +1,12 @@
+# ==========================================================
+# 本地配置模板 —— 复制为 application-local.properties 后填写真实值
+# 命令：cp application-local.properties.example application-local.properties
+# ==========================================================
+
+# 数据库密码
+spring.datasource.password=你的MySQL密码
+
+# JWT 签名密钥（生产环境必须更换，建议 >= 64 字符随机串）
+jwt.secret=请填写随机密钥
+# JWT 有效期（毫秒），默认 8 小时
+jwt.expiration=28800000
