@@ -228,12 +228,16 @@ export interface FlowDefinitionVO {
   flowCode: string
   flowName: string
   category?: string
+  /** 流程图标（Lucide 图标名） */
+  icon?: string
   bpmnKey?: string
   deploymentId?: string
   /** 表单字段配置 JSON 字符串 */
   formFields?: string
   /** 节点审批人规则 JSON 字符串 */
   nodeConfig?: string
+  /** 网关分支条件配置 JSON 字符串（后端部署前注入 conditionExpression） */
+  flowConfig?: string
   status: number
   remark?: string
   createTime?: string
@@ -252,6 +256,8 @@ export interface FlowOptionVO {
   flowCode: string
   flowName: string
   category?: string
+  /** 流程图标（Lucide 图标名），发起页卡片展示 */
+  icon?: string
   /** 表单字段配置 JSON 字符串，用于动态渲染表单 */
   formFields?: string
 }
@@ -261,12 +267,108 @@ export interface FlowDefinitionSaveRequest {
   flowCode: string
   flowName: string
   category?: string
+  /** 流程图标（Lucide 图标名） */
+  icon?: string
   /** 设计器产出的 BPMN XML */
   bpmnXml?: string
   formFields?: string
   nodeConfig?: string
+  /** 网关分支条件配置 JSON 字符串；空表示清空全部可视化条件 */
+  flowConfig?: string
   status?: number
   remark?: string
+}
+
+/** 条件取值类型：决定比较值控件形态与后端字面量生成方式 */
+export type ConditionValueType = 'number' | 'string' | 'date' | 'boolean'
+
+/**
+ * 条件组：可嵌套一层子组，实现「(A 且 B) 或 (C 且 D)」这类复合规则。
+ *
+ * <p>产品层限制 2 层（根组 + 子组），子组内不再允许嵌组；
+ * 后端保存时有同样的兜底校验，防止接口直传绕过。</p>
+ */
+export interface ConditionGroup {
+  /** 组内连接逻辑：and（缺省）/ or */
+  logic?: string
+  /** 本组直接持有的条件 */
+  rules?: FlowConditionRule[]
+  /** 子条件组（最多一层） */
+  groups?: ConditionGroup[]
+}
+
+/**
+ * 网关分支条件配置项（与后端 FlowConditionItem 一一对应）。
+ *
+ * <p>按「连线」配置：BPMN 2.0 的条件表达式挂在 sequenceFlow 上，
+ * 网关只持有一个 default 属性指向兜底连线。</p>
+ *
+ * <p>两种配置模式（{@code mode}）互斥：
+ * <ul>
+ *   <li>{@code visual}：可视化条件组，由后端递归生成 JUEL 表达式；</li>
+ *   <li>{@code raw}：手写 EL 表达式原文，仅对持有 {@code system:flow:condition-raw} 的角色开放。</li>
+ * </ul>
+ * 切换模式时另一侧的值应清空，避免"界面显示一套、实际生效另一套"。</p>
+ */
+export interface FlowConditionItem {
+  /** 配置模式：visual=可视化（缺省），raw=手写表达式 */
+  mode?: 'visual' | 'raw'
+  /** BPMN sequenceFlow 的 id */
+  flowId: string
+  /** 源网关 id */
+  gatewayId: string
+  /** 源网关名称（冗余，便于展示） */
+  gatewayName?: string
+  /** 目标节点 id（冗余，便于展示） */
+  targetNodeId?: string
+  /** 目标节点名称（冗余，便于展示） */
+  targetNodeName?: string
+  /** 分支名称（业务语义，如「大额审批」，用于列表展示与流转日志） */
+  name?: string
+  /** 分支描述（配置说明，不参与运行） */
+  description?: string
+  /** 是否默认（兜底）分支 */
+  isDefault?: boolean
+  /** 可视化条件树（mode=visual 时生效） */
+  condition?: ConditionGroup
+  /** 手写 EL 表达式原文（mode=raw 时生效） */
+  expression?: string
+  /** @deprecated 存量扁平结构的组合方式；读取后自动升级为 condition */
+  logic?: string
+  /** @deprecated 存量扁平结构的条件列表；读取后自动升级为 condition.rules */
+  conditions?: FlowConditionRule[]
+}
+
+/** 单条条件规则 */
+export interface FlowConditionRule {
+  /** 变量名（表单字段 fieldKey 或系统内置变量，发起时已平铺为流程变量） */
+  field: string
+  /** 运算符：eq ne gt ge lt le contains notContains empty notEmpty */
+  op: string
+  /** 值类型：number 裸值 / string 加单引号字面量 / date 按字典序比较 / boolean 布尔字面量 */
+  valueType?: ConditionValueType
+  /** 比较值；empty / notEmpty 运算符下无需值 */
+  value?: string
+}
+
+/** 分支条件可选变量项 */
+export interface FlowVariableItem {
+  /** 变量名（直接写进 JUEL 表达式，必须是合法标识符） */
+  key: string
+  /** 展示名 */
+  label: string
+  /** 取值类型，决定比较值控件形态 */
+  type: ConditionValueType
+}
+
+/**
+ * 分支条件可用变量清单（对应后端 FlowVariableVO）。
+ *
+ * <p>分两组下发，下拉按组渲染：表单字段取自发环节主表单，系统变量与表单无关。</p>
+ */
+export interface FlowVariableVO {
+  formFields: FlowVariableItem[]
+  systemVars: FlowVariableItem[]
 }
 
 /** 导入 BPMN XML 生成流程模板：flowCode / flowName 留空时取 BPMN 的 process id / name */
@@ -291,9 +393,28 @@ export interface FlowDefinitionPageQuery extends QueryPage {
 export interface NodeConfigItem {
   nodeId: string
   nodeName: string
-  /** 0未配置 1指定人员 2指定角色 3部门主管 */
+  /** 0未配置 1指定人员 2指定角色 3部门主管 4申请人本人 5指定部门主管 */
   assigneeType: number
   assigneeValue: string
+  /**
+   * 节点超时小时数（阶段四）。留空/0 表示回落全局 `approval.timeout.hours`（0=不启用）。
+   *
+   * <p>建任务时后端据此写 Flowable dueDate 与实例 `due_time`，列表逾期后显示「超时」标记。</p>
+   */
+  timeoutHours?: number
+  /**
+   * 到期自动动作（阶段四）：0/空 仅标记、1 提醒、2 自动驳回。
+   *
+   * <p>仅在 {@link timeoutHours} > 0 时有意义；由后端定时任务每分钟扫描执行。</p>
+   */
+  timeoutAction?: number
+  /**
+   * 节点类型（仅前端维护，用于校验与展示，**不提交给后端**）。
+   *
+   * <p>bpmn-js 中「用户任务」为 {@code bpmn:UserTask}、「创建任务」为 {@code bpmn:Task}，
+   * 两者都要能被采集与配置审批人。</p>
+   */
+  nodeKind?: 'userTask' | 'createTask'
 }
 
 /** 表单字段配置（驱动发起申请的动态表单） */
@@ -313,13 +434,39 @@ export interface ApprovalInstanceVO {
   title: string
   applicantId: number
   applicantName?: string
-  /** 1草稿 2审批中 3已通过 4已驳回 5已撤销 */
+  /** 1草稿 2审批中 3已通过 4已驳回 5已撤销 6已终止 7已挂起 */
   status: number
   statusName?: string
   currentNode?: string
+  /** 单据编号（系统生成） */
+  billCode?: string
   /** 表单数据 JSON 字符串 */
   formData?: string
   createTime?: string
+  /** 当前节点应处理截止时间（阶段四超时），未配置超时为空 */
+  dueTime?: string
+  /** 是否已逾期（审批中且 dueTime 已过），由后端计算 */
+  overdue?: boolean
+  /** 发起人所属部门 */
+  deptName?: string
+  /** 发起人所属公司 */
+  companyName?: string
+}
+
+/** 流程实例（全量）查询入参 */
+export interface ApprovalInstancePageQuery extends QueryPage {
+  /** 标题模糊 */
+  title?: string
+  /** 发起人姓名模糊 */
+  applicantName?: string
+  /** 状态：1草稿 2审批中 3已通过 4已驳回 5已撤销 6已终止 */
+  status?: number
+  /** 流程编码精确 */
+  flowCode?: string
+  /** 发起时间起 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss */
+  beginTime?: string
+  /** 发起时间止 */
+  endTime?: string
 }
 
 /** 待办任务 */
@@ -331,6 +478,10 @@ export interface ApprovalTodoVO {
   applicantName?: string
   currentNode?: string
   createTime?: string
+  /** 申请人所属部门（后端解析 oa_department） */
+  deptName?: string
+  /** 申请人所属公司（部门 company_id → oa_company） */
+  companyName?: string
 }
 
 /** 审批流转记录（时间轴 / 已办） */
@@ -344,6 +495,40 @@ export interface ApprovalRecordVO {
   actionName?: string
   opinion?: string
   createTime?: string
+  /** 单据发起人所属部门 */
+  deptName?: string
+  /** 单据发起人所属公司 */
+  companyName?: string
+}
+
+/** 抄送任务（被抄送人视角） */
+export interface ApprovalCcVO {
+  /** 抄送记录 id（标记已读用） */
+  id: number
+  instanceId: number
+  title?: string
+  flowName?: string
+  applicantName?: string
+  deptName?: string
+  companyName?: string
+  currentNode?: string
+  status?: number
+  statusName?: string
+  /** 抄送人姓名 */
+  ccByName?: string
+  remark?: string
+  /** 0 未读、1 已读 */
+  readFlag?: number
+  readTime?: string
+  createTime?: string
+}
+
+/** 抄送人候选 */
+export interface CcUserVO {
+  id: number
+  realName?: string
+  username?: string
+  deptName?: string
 }
 
 /** 审批详情 */
@@ -351,6 +536,28 @@ export interface ApprovalDetailVO {
   instance: ApprovalInstanceVO
   records: ApprovalRecordVO[]
   currentTask?: ApprovalTodoVO
+  /**
+   * 当前用户是否可对当前节点审批（同意 / 驳回）。
+   *
+   * <p>与 {@code currentTask} 解耦：{@code currentTask} 仅表示「流程停在哪个节点」（申请人 / 实例总览
+   * 用户也能看到），而此字段才表示「我能不能审批」。为真条件：当前节点存在且当前用户是候选人或超管。
+   * 前端据此显示审批区，避免非候选人点了同意/驳回却报 3104。</p>
+   */
+  canApprove?: boolean
+  /**
+   * 发起环节主表单的 FormCreate 规则 JSON。
+   *
+   * <p>所有审批节点复用这一份表单，审批人打开待办时用它只读渲染申请人填写的内容；
+   * 未绑定表单时为 undefined，前端降级为键值对展示。</p>
+   */
+  formRuleJson?: string
+  /**
+   * 当前节点允许编辑的字段标识集合。
+   *
+   * <p>未配置字段权限时为空数组 —— 全部只读（与后端「默认只读」约定一致）。
+   * 销假场景下该节点会把「销假日期」等字段设为可编辑，员工填写后随审批提交。</p>
+   */
+  editableProps?: string[]
 }
 
 export interface ApprovalStartRequest {
@@ -365,6 +572,12 @@ export interface ApprovalCompleteRequest {
   /** approve 同意 / reject 驳回 */
   action: string
   opinion?: string
+  /**
+   * 本节点可编辑字段的补丁。
+   *
+   * <p>销假节点填写销假信息时提交；后端只合并被授权可编辑的字段，其余静默忽略。</p>
+   */
+  formDataPatch?: Record<string, unknown>
 }
 
 export interface ApprovalTransferRequest {
@@ -684,4 +897,154 @@ export interface OperationLogPageQuery {
   operationStatus?: number
   startTime?: string
   endTime?: string
+}
+
+/* ---------------- 低代码表单（FormCreate） ---------------- */
+
+/**
+ * FormCreate 规则项。
+ *
+ * <p>对应 FormCreate option 数组的单元素：`type` 决定渲染控件，`prop` 是数据字段名，
+ * `rule` 承载校验（`required` / `min` / `max` / `pattern` / 自定义 `validator`）。</p>
+ */
+export interface FormRuleItem {
+  /**
+   * FormCreate 内置组件类型名。
+   *
+   * <p>⚠️ 必须用 FormCreate 的类型名，不能用 Element Plus 组件短名：
+   * {@code inputNumber}（不是 number）、{@code datePicker}（不是 date）、
+   * {@code timePicker}（不是 time）。写错时 FormCreate 不报错，只是静默不渲染该控件。</p>
+   */
+  type: string
+  prop: string
+  /**
+   * 字段标签。
+   *
+   * <p>FormCreate 3.x 的标签字段名是 {@code title}；{@code label} 会被
+   * {@code FormRender} 自动映射为 {@code title}（存量数据兼容用）。</p>
+   */
+  label?: string
+  title?: string
+  value?: unknown
+  valueType?: string
+  options?: unknown[]
+  rule?: {
+    required?: boolean
+    message?: string
+    min?: number
+    max?: number
+    pattern?: string
+    trigger?: string
+    validator?: unknown
+  }
+  [key: string]: unknown
+}
+
+/** 表单字段清单项（后端从规则派生，供预校验与详情页表头使用） */
+export interface FormFieldSchemaItem {
+  prop: string
+  label: string
+  type: string
+  required: boolean
+}
+
+export interface FormVO {
+  id: number
+  formCode: string
+  formName: string
+  category?: string
+  /** FormCreate 规则 JSON 字符串 */
+  ruleJson?: string
+  /** 字段清单 JSON 字符串 */
+  fieldSchema?: string
+  status: number
+  remark?: string
+  createTime?: string
+  updateTime?: string
+  /** 被多少个流程节点引用；>0 时删除会被后端拒绝 */
+  bindCount?: number
+}
+
+export interface FormSaveRequest {
+  /** 带 id 为更新，不带为新增 */
+  id?: number
+  formCode: string
+  formName: string
+  category?: string
+  /** FormCreate 规则 JSON 字符串（由设计器产出） */
+  ruleJson: string
+  remark?: string
+  status?: number
+}
+
+export interface FormPageQuery {
+  keyword?: string
+  status?: number
+  pageNo?: number
+  pageSize?: number
+}
+
+/** 流程节点↔表单 绑定项 */
+export interface NodeFormVO {
+  /** 绑定记录主键，解除绑定时按此调用删除接口 */
+  id: number
+  flowDefId: number
+  flowCode?: string
+  flowName?: string
+  nodeKey: string
+  nodeName?: string
+  formId: number
+  formCode?: string
+  formName?: string
+  /** FormCreate 规则 JSON 字符串 */
+  ruleJson?: string
+  isPrimary?: number
+  sort?: number
+}
+
+export interface NodeFormBindRequest {
+  flowDefId: number
+  /** 发起环节统一用 init */
+  nodeKey?: string
+  nodeName?: string
+  formId: number
+  isPrimary?: number
+}
+
+/* ---------------- 节点表单字段权限 ---------------- */
+
+/** 字段权限：1只读 2可编辑 3隐藏 */
+export type FieldPermission = 1 | 2 | 3
+
+export const FIELD_PERMISSION_OPTIONS: Array<{ value: FieldPermission; label: string }> = [
+  { value: 1, label: '只读' },
+  { value: 2, label: '可编辑' },
+  { value: 3, label: '隐藏' },
+]
+
+export interface NodeFieldPermissionItem {
+  prop: string
+  label: string
+  permission: FieldPermission
+  /** 是否为显式配置；false 表示走默认只读 */
+  configured?: boolean
+}
+
+export interface NodeFieldPermissionVO {
+  flowDefId: number
+  nodeKey: string
+  nodeName?: string
+  formId: number
+  formCode?: string
+  formName?: string
+  /** 表单的全部字段（未配置的以只读补齐） */
+  fields: NodeFieldPermissionItem[]
+}
+
+export interface NodeFieldPermissionSaveRequest {
+  flowDefId: number
+  nodeKey: string
+  nodeName?: string
+  formId: number
+  fields: Array<{ prop: string; fieldLabel?: string; permission: FieldPermission }>
 }
