@@ -84,10 +84,10 @@ INSERT INTO `oa_menu`
     (`id`, `menu_name`, `menu_code`, `parent_id`, `menu_type`, `path`, `component`, `icon`, `sort`, `visible`, `status`)
 VALUES
     -- 工作台
-    (1,  '工作台',   'dashboard',        0, 2, '/dashboard',    'dashboard/index',        'HomeFilled',      0, 1, 1),
+    (1,  '工作台',   'dashboard',        0, 2, '/dashboard',    'dashboard/index',        'House',      0, 1, 1),
 
     -- 系统管理目录
-    (10, '系统管理', 'system',           0, 1, '/system',       'Layout',                 'Setting',        90, 1, 1),
+    (10, '系统管理', 'system',           0, 1, '/system',       'Layout',                 'Settings',        90, 1, 1),
 
     -- 用户管理 + 按钮
     (11, '用户管理', 'system:user',     10, 2, '/system/user',  'system/user/index',      'User',           1, 1, 1),
@@ -98,7 +98,7 @@ VALUES
     (16, '重置密码', 'system:user:resetPwd', 11, 3, NULL, NULL, NULL, 5, 0, 1),
 
     -- 角色管理 + 按钮
-    (20, '角色管理', 'system:role',     10, 2, '/system/role',  'system/role/index',      'UserFilled',     2, 1, 1),
+    (20, '角色管理', 'system:role',     10, 2, '/system/role',  'system/role/index',      'UserRound',     2, 1, 1),
     (21, '角色查询', 'system:role:query',   20, 3, NULL, NULL, NULL, 1, 0, 1),
     (22, '角色新增', 'system:role:add',     20, 3, NULL, NULL, NULL, 2, 0, 1),
     (23, '角色编辑', 'system:role:edit',    20, 3, NULL, NULL, NULL, 3, 0, 1),
@@ -113,7 +113,7 @@ VALUES
     (34, '菜单删除', 'system:menu:delete',  30, 3, NULL, NULL, NULL, 4, 0, 1),
 
     -- 部门管理（第二阶段实现页面，当前不显示）
-    (40, '部门管理', 'system:dept',     10, 2, '/system/dept',  'system/dept/index',      'OfficeBuilding', 4, 0, 1),
+    (40, '部门管理', 'system:dept',     10, 2, '/system/dept',  'system/dept/index',      'Building2', 4, 0, 1),
     (41, '部门查询', 'system:dept:query',   40, 3, NULL, NULL, NULL, 1, 0, 1),
     (42, '部门新增', 'system:dept:add',     40, 3, NULL, NULL, NULL, 2, 0, 1),
     (43, '部门编辑', 'system:dept:edit',    40, 3, NULL, NULL, NULL, 3, 0, 1),
