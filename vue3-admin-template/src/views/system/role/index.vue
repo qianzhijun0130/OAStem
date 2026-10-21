@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   assignRoleMenusApi,
@@ -13,7 +13,9 @@ import {
 } from '@/api/role'
 import { getMenuTreeApi } from '@/api/menu'
 import type { MenuVO, RoleOptionVO, RolePageQuery, RoleSaveRequest, RoleVO } from '@/api/types'
+import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
+import ListPage from '@/components/list/ListPage.vue'
 
 const DATA_SCOPE_OPTIONS = [
   { value: 1, label: '全部数据' },
@@ -21,16 +23,17 @@ const DATA_SCOPE_OPTIONS = [
   { value: 3, label: '仅本人' },
 ]
 
-const loading = ref(false)
-const list = ref<RoleVO[]>([])
-const total = ref(0)
+/** 页面私有查询条件：分页参数由 useListQuery 统一管理 */
+interface RoleQuery extends Omit<RolePageQuery, 'pageNo' | 'pageSize'> {}
 
-const query = reactive<RolePageQuery>({
-  pageNo: 1,
-  pageSize: 10,
-  roleName: undefined,
-  status: undefined,
-})
+// 查询/分页/加载态交给组合式函数，页面只保留业务动作
+const { list, total, loading, query, pageNo, pageSize, refresh, search, reset,
+        handleSizeChange, handlePageChange } =
+  useListQuery<RoleVO, RoleQuery>({
+    initialQuery: () => ({ roleName: undefined, status: undefined }),
+    fetcher: (params) => getRolePageApi(params),
+    onError: (error) => logAsyncError('加载角色列表失败', error),
+  })
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -70,34 +73,6 @@ const permSaving = ref(false)
 const menuTree = ref<MenuVO[]>([])
 const checkedMenuIds = ref<number[]>([])
 const permTreeRef = ref()
-
-async function loadPage() {
-  loading.value = true
-  try {
-    const res = await getRolePageApi(query)
-    list.value = res.records
-    total.value = res.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSizeChange(size: number) {
-  query.pageSize = size
-  void loadPage()
-}
-
-function handlePageChange(page: number) {
-  query.pageNo = page
-  void loadPage()
-}
-
-function resetQuery() {
-  query.roleName = undefined
-  query.status = undefined
-  query.pageNo = 1
-  void loadPage()
-}
 
 function openCreate() {
   editingId.value = null
@@ -146,7 +121,7 @@ async function submit() {
     })
     ElMessage.success(editingId.value ? '修改成功' : '新增成功')
     dialogVisible.value = false
-    await loadPage()
+    await refresh()
   } finally {
     submitting.value = false
   }
@@ -164,13 +139,13 @@ async function remove(row: RoleVO) {
   }
   await deleteRoleApi(row.id)
   ElMessage.success('删除成功')
-  await loadPage()
+  await refresh()
 }
 
 async function toggleStatus(row: RoleVO, enabled: boolean) {
   await updateRoleStatusApi(row.id, enabled ? 1 : 0)
   ElMessage.success(enabled ? '已启用' : '已禁用')
-  await loadPage()
+  await refresh()
 }
 
 /** 把菜单树摊平成 id 列表，供「全选」使用 */
@@ -231,7 +206,7 @@ async function savePerms() {
     await assignRoleMenusApi(permRoleId.value, checked)
     ElMessage.success('权限分配成功')
     permDialogVisible.value = false
-    await loadPage()
+    await refresh()
   } finally {
     permSaving.value = false
   }
@@ -302,7 +277,7 @@ async function submitClone() {
     await cloneRoleMenusApi(cloneTargetId.value, cloneSourceId.value)
     ElMessage.success('菜单已克隆，请按需增删')
     cloneDialogVisible.value = false
-    await loadPage()
+    await refresh()
   } catch (error) {
     logAsyncError('克隆角色菜单失败', error)
   } finally {
@@ -321,98 +296,92 @@ function toggleExpandAll(expanded: boolean) {
 function scopeLabel(scope?: number) {
   return DATA_SCOPE_OPTIONS.find((o) => o.value === scope)?.label ?? '-'
 }
-
-onMounted(loadPage)
 </script>
 
 <template>
   <div class="role">
-    <el-card shadow="never">
-      <el-form :inline="true" @submit.prevent="loadPage">
-        <el-form-item label="角色名称">
-          <el-input v-model="query.roleName" placeholder="请输入角色名称" clearable style="width: 180px" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width: 120px">
-            <el-option label="启用" :value="1" />
-            <el-option label="禁用" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="loadPage">查询</el-button>
-          <el-button @click="resetQuery">重置</el-button>
-        </el-form-item>
-      </el-form>
+    <ListPage
+      :data="list"
+      :total="total"
+      :loading="loading"
+      :page-no="pageNo"
+      :page-size="pageSize"
+      :page-sizes="[10, 20, 50, 100]"
+      pagination-layout="total, sizes, prev, pager, next, jumper"
+      empty-text="暂无角色数据"
+      @size-change="handleSizeChange"
+      @current-change="handlePageChange"
+    >
+      <template #filters>
+        <el-form :inline="true" @submit.prevent="search">
+          <el-form-item label="角色名称">
+            <el-input v-model="query.roleName" placeholder="请输入角色名称" clearable style="width: 180px" />
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="query.status" placeholder="全部" clearable style="width: 120px">
+              <el-option label="启用" :value="1" />
+              <el-option label="禁用" :value="0" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="search">查询</el-button>
+            <el-button @click="reset">重置</el-button>
+          </el-form-item>
+        </el-form>
 
-      <div class="role__toolbar">
-        <el-button v-permission="'system:role:add'" type="primary" @click="openCreate">
-          新增角色
-        </el-button>
-      </div>
+        <!-- 工具栏保持在筛选区下方的独立一行（与改造前视觉一致） -->
+        <div class="role__toolbar">
+          <el-button v-permission="'system:role:add'" type="primary" @click="openCreate">
+            新增角色
+          </el-button>
+        </div>
+      </template>
 
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column prop="roleName" label="角色名称" min-width="140" />
-        <el-table-column prop="roleCode" label="角色编码" min-width="140" />
-        <el-table-column label="角色类型" width="110">
-          <template #default="{ row }">
-            <el-tag v-if="row.roleType === 1" type="danger">系统角色</el-tag>
-            <el-tag v-else type="info">业务角色</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="数据范围（暂未生效）" width="170">
-          <template #default="{ row }">{{ scopeLabel(row.dataScope) }}</template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="userCount" label="用户数" width="90" align="center" />
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.status === 1"
-              @change="(val: boolean) => toggleStatus(row, val)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right">
-          <template #default="{ row }">
-            <el-button v-permission="'system:role:edit'" link type="primary" @click="openEdit(row)">
-              编辑
-            </el-button>
-            <el-button v-permission="'system:role:assign'" link type="success" @click="openPermDialog(row)">
-              分配权限
-            </el-button>
-            <el-button
-              v-permission="'system:role:assign'"
-              link
-              type="warning"
-              @click="openCloneDialog(row)"
-            >
-              克隆菜单
-            </el-button>
-            <el-button v-permission="'system:role:delete'" link type="danger" @click="remove(row)">
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="暂无角色数据" />
+      <el-table-column prop="roleName" label="角色名称" min-width="140" />
+      <el-table-column prop="roleCode" label="角色编码" min-width="140" />
+      <el-table-column label="角色类型" width="110">
+        <template #default="{ row }">
+          <el-tag v-if="row.roleType === 1" type="danger">系统角色</el-tag>
+          <el-tag v-else type="info">业务角色</el-tag>
         </template>
-      </el-table>
+      </el-table-column>
+      <el-table-column label="数据范围（暂未生效）" width="170">
+        <template #default="{ row }">{{ scopeLabel(row.dataScope) }}</template>
+      </el-table-column>
+      <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="userCount" label="用户数" width="90" align="center" />
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.status === 1"
+            @change="(val: boolean) => toggleStatus(row, val)"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="320" fixed="right">
+        <template #default="{ row }">
+          <el-button icon-only v-permission="'system:role:edit'" link type="primary" @click="openEdit(row)">
+            编辑
+          </el-button>
+          <el-button icon-only v-permission="'system:role:assign'" link type="success" @click="openPermDialog(row)">
+            分配权限
+          </el-button>
+          <el-button icon-only
+            v-permission="'system:role:assign'"
+            link
+            type="warning"
+            @click="openCloneDialog(row)"
+          >
+            克隆菜单
+          </el-button>
+          <el-button icon-only v-permission="'system:role:delete'" link type="danger" @click="remove(row)">
+            删除
+          </el-button>
+        </template>
+      </el-table-column>
+    </ListPage>
 
-      <div class="role__pager">
-        <el-pagination
-          v-model:current-page="query.pageNo"
-          v-model:page-size="query.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          @size-change="handleSizeChange"
-          @current-change="handlePageChange"
-        />
-      </div>
-    </el-card>
-
-    <el-dialog
+    <ResponsiveDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑角色' : '新增角色'"
       width="520px"
@@ -459,9 +428,9 @@ onMounted(loadPage)
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">确定</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <el-dialog
+    <ResponsiveDialog
       v-model="permDialogVisible"
       :title="`分配权限 - ${permRoleName}`"
       width="560px"
@@ -494,9 +463,9 @@ onMounted(loadPage)
         <el-button @click="permDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="permSaving" @click="savePerms">保存</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <el-dialog v-model="cloneDialogVisible" :title="`克隆菜单 - ${cloneTargetName}`" width="520px">
+    <ResponsiveDialog v-model="cloneDialogVisible" :title="`克隆菜单 - ${cloneTargetName}`" width="520px">
       <el-alert type="info" :closable="false" style="margin-bottom: 16px">
         <template #title>
           系统没有「角色继承 / 权限叠加」机制，每个角色的菜单都必须独立完整勾选。
@@ -532,7 +501,7 @@ onMounted(loadPage)
         <el-button @click="cloneDialogVisible = false">取消</el-button>
         <el-button type="warning" :loading="cloneSaving" @click="submitClone">确认克隆</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
@@ -546,11 +515,6 @@ onMounted(loadPage)
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-text-color-secondary);
-}
-.role__pager {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
 }
 .role__perm-toolbar {
   display: flex;

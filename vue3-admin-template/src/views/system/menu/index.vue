@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ChevronsDownUp, ChevronsUpDown } from '@lucide/vue'
+import AppIcon from '@/components/icons/AppIcon.vue'
+import { LUCIDE_ICON_NAMES } from '@/utils/icons'
 import { deleteMenuApi, getMenuTreeApi, saveMenuApi, updateMenuStatusApi } from '@/api/menu'
 import type { MenuSaveRequest, MenuVO } from '@/api/types'
 import { logAsyncError } from '@/utils/asyncGuard'
+
+/** el-table 实例类型：仅声明本项目实际调用的方法 */
+type MenuTableInstance = {
+  getExpandedRowKeys: () => Array<number | string>
+  setAllRowsExpansion: (expand: boolean) => void
+  toggleRowExpansion: (row: unknown, expanded?: boolean) => void
+}
+
+const tableRef = ref<MenuTableInstance | null>(null)
 
 const MENU_TYPE_OPTIONS = [
   { value: 1, label: '目录' },
@@ -75,6 +87,12 @@ function excludeSubtree(nodes: MenuVO[], excludeId: number | null): MenuVO[] {
     .map((node) => ({ ...node, children: excludeSubtree(node.children ?? [], excludeId) }))
 }
 
+/** 是否处于「全部展开」状态：所有可展开节点都在展开集合里 */
+const allExpanded = computed(() => {
+  const total = collectExpandableIds(treeData.value).length
+  return total > 0 && expandedRowKeys.value.length === total
+})
+
 async function loadTree() {
   loading.value = true
   try {
@@ -82,11 +100,132 @@ async function loadTree() {
     treeData.value = keyword.value.trim()
       ? filterByName(all, keyword.value.trim())
       : all
+    // 数据源变化后 el-table 的展开态会重置，这里显式回填用户当前的展开范围，
+    // 使「保存 → 刷新树」后仍停留在原来的展开位置。
+    // 必须等 DOM 更新完成，否则 tableRef 与行对象都还是旧的。
+    await nextTick()
+    restoreExpandedRows()
   } catch (error) {
     logAsyncError('加载菜单树失败', error)
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * 递归收集树中所有非叶子节点的 id —— 即「全部展开」时需要展开的行。
+ *
+ * <p>菜单树里只有目录（menuType=1）有子节点，但判定依据用「是否有 children」而非
+ * menuType，这样即便后续数据异常多出空 children 也不会漏。</p>
+ */
+function collectExpandableIds(nodes: MenuVO[]): number[] {
+  const ids: number[] = []
+  for (const node of nodes) {
+    if (node.children && node.children.length > 0) {
+      ids.push(node.id)
+      ids.push(...collectExpandableIds(node.children))
+    }
+  }
+  return ids
+}
+
+/**
+ * 当前展开的行 key 集合。
+ *
+ * <p><b>为什么必须自己记</b>：el-table 的 {@code default-expand-all} 只在**首次渲染**时生效，
+ * {@code toggleRowExpansion} 又需要在数据加载后调用。若只依赖 {@code default-expand-all}，
+ * 保存后重拉数据（{@code loadTree} 整体替换 {@code treeData}）就会让展开态全部收起 ——
+ * 这正是「保存一下树就折叠了」的原因。</p>
+ *
+ * <p>类型用 {@code number[]}：后端主键是数字，el-table 的 {@code getExpandedRowKeys()}
+ * 返回值在部分版本会带字符串，这里统一 {@code Number()} 转换，避免类型不一致导致
+ * {@code :expand-row-keys} 绑定失效。</p>
+ */
+const expandedRowKeys = ref<number[]>([])
+
+/** 程序化改展开态时置位，避免 expand-change 把中间态写回 expandedRowKeys */
+let suppressExpandEvent = false
+
+/** 记录当前已展开的行，供数据刷新后回填。
+ *
+ * <p>只在<b>用户主动点击</b>展开/收起时更新状态：{@code setAllRowsExpansion} 与
+ * {@code toggleRowExpansion} 是程序化调用，同样会触发 expand-change，
+ * 若不加标志位会把「正在回填的中间态」写回状态，导致状态抖动。</p>
+ */
+function rememberExpandedRows() {
+  if (suppressExpandEvent) {
+    return
+  }
+  // el-table 部分版本返回 string 键，统一转数字以匹配 expandedRowKeys 的类型
+  expandedRowKeys.value = (tableRef.value?.getExpandedRowKeys() ?? []).map(Number)
+}
+
+/**
+ * 回填展开态。
+ *
+ * <p>el-table 的展开/收起 API 都以**行对象**为参数，而数据在刷新后是新数组，
+ * 旧行对象失效。这里遍历当前数据重新取行对象，再按 key 恢复展开状态。</p>
+ */
+function restoreExpandedRows() {
+  const table = tableRef.value
+  if (!table) {
+    return
+  }
+  suppressExpandEvent = true
+  if (expandedRowKeys.value.length === 0) {
+    table.setAllRowsExpansion(false)
+  } else {
+    const want = new Set(expandedRowKeys.value)
+    const apply = (nodes: MenuVO[]) => {
+      for (const node of nodes) {
+        if (!node.children || node.children.length === 0) {
+          continue
+        }
+        table.toggleRowExpansion(node, want.has(node.id))
+        apply(node.children)
+      }
+    }
+    apply(treeData.value)
+  }
+  // 放开时同步真实展开态：可能已过滤掉失效 key
+  expandedRowKeys.value = table.getExpandedRowKeys().map(Number)
+  suppressExpandEvent = false
+}
+
+/**
+ * 一键展开 / 收起。
+ *
+ * <p>展开时把所有非叶子行设为展开并记入 {@link expandedRowKeys}，
+ * 这样后续保存刷新也能维持「全展开」；收起同理。</p>
+ */
+function toggleExpandAll(expand: boolean) {
+  const table = tableRef.value
+  if (!table) {
+    return
+  }
+  suppressExpandEvent = true
+  // 逐行设置而非 setAllRowsExpansion：
+  // 后者对本表不生效（实测点击后展开图标仍为 0），且只处理当前已渲染的行。
+  // 逐行遍历 + toggleRowExpansion 与 restoreExpandedRows 用同一套机制，行为一致可验证。
+  const apply = (nodes: MenuVO[]) => {
+    for (const node of nodes) {
+      if (!node.children || node.children.length === 0) {
+        continue
+      }
+      table.toggleRowExpansion(node, expand)
+      apply(node.children)
+    }
+  }
+  apply(treeData.value)
+  suppressExpandEvent = false
+  expandedRowKeys.value = expand ? collectExpandableIds(treeData.value) : []
+  // expand-row-keys 是响应式绑定，但 el-table 内部在数据未变时可能不重算展开态。
+  // 等一次渲染后再按 key 同步一次，确保点击即刻生效。
+  nextTick(() => {
+    restoreExpandedRows()
+  })
+  // 不弹 Toast：展开/收起是纯视图操作且结果立即可见（按钮文案与箭头同步变化），
+  // 提示反而打断操作节奏。
 }
 
 function filterByName(nodes: MenuVO[], kw: string): MenuVO[] {
@@ -220,7 +359,13 @@ async function toggleVisible(row: MenuVO, visible: boolean) {
   }
 }
 
-onMounted(loadTree)
+onMounted(async () => {
+  // 首次进入默认「全折叠」，把展开控制权交给用户：
+  // 改造前用的 default-expand-all 只在首次渲染生效、且与 expand-row-keys 冲突，
+  // 数据一刷新就复位，反而让「保存后树就折叠了」难以复现与排查。
+  // 现在展开态完全由 expandedRowKeys 驱动，行为可预期。
+  await loadTree()
+})
 </script>
 
 <template>
@@ -240,14 +385,19 @@ onMounted(loadTree)
         <el-button v-permission="'system:menu:add'" type="primary" @click="openCreate">
           新增菜单
         </el-button>
+        <el-button :icon="allExpanded ? ChevronsUpDown : ChevronsDownUp" @click="toggleExpandAll(!allExpanded)">
+          {{ allExpanded ? '收起全部' : '展开全部' }}
+        </el-button>
       </div>
 
       <el-table
+        ref="tableRef"
         v-loading="loading"
         :data="treeData"
         row-key="id"
-        default-expand-all
+        :expand-row-keys="expandedRowKeys"
         :tree-props="{ children: 'children' }"
+        @expand-change="rememberExpandedRows"
         border
       >
         <el-table-column prop="menuName" label="菜单名称" min-width="200" />
@@ -280,7 +430,7 @@ onMounted(loadTree)
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button
+            <el-button icon-only
               v-permission="'system:menu:edit'"
               link
               type="primary"
@@ -288,7 +438,7 @@ onMounted(loadTree)
             >
               编辑
             </el-button>
-            <el-button
+            <el-button icon-only
               v-permission="'system:menu:delete'"
               link
               type="danger"
@@ -304,7 +454,7 @@ onMounted(loadTree)
       </el-table>
     </el-card>
 
-    <el-dialog
+    <ResponsiveDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑菜单' : '新增菜单'"
       width="560px"
@@ -344,7 +494,23 @@ onMounted(loadTree)
           <el-input v-model="form.menuCode" placeholder="如 system:dept 或 system:dept:add" />
         </el-form-item>
         <el-form-item v-if="form.menuType !== 3" label="图标" prop="icon">
-          <el-input v-model="form.icon" placeholder="Element Plus 图标名（可选）" />
+          <!-- 从注册表选择 Lucide 图标；allow-create 兼容直接粘贴自定义图标名 -->
+          <el-select
+            v-model="form.icon"
+            filterable
+            clearable
+            allow-create
+            default-first-option
+            placeholder="选择 Lucide 图标（可选）"
+            style="width: 100%"
+          >
+            <el-option v-for="name in LUCIDE_ICON_NAMES" :key="name" :label="name" :value="name">
+              <span class="menu-icon-option">
+                <AppIcon :name="name" :size="14" />
+                {{ name }}
+              </span>
+            </el-option>
+          </el-select>
         </el-form-item>
         <el-form-item label="排序号" prop="sort">
           <el-input-number v-model="form.sort" :min="0" :max="9999" />
@@ -366,12 +532,19 @@ onMounted(loadTree)
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">确定</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
 <style scoped>
 .menu__toolbar {
   margin-bottom: 16px;
+}
+
+/* 图标下拉项：图标与名称垂直居中 */
+.menu-icon-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

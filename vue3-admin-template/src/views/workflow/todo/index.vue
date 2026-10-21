@@ -6,7 +6,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ApprovalDetailDrawer from '../components/ApprovalDetailDrawer.vue'
 import { completeApprovalApi, getTodoApi, transferApprovalApi } from '@/api/approval'
-import { getUserPageApi } from '@/api/user'
+import { getUserCandidatesApi } from '@/api/user'
 import type { ApprovalTodoVO, UserVO } from '@/api/types'
 
 const loading = ref(false)
@@ -40,9 +40,19 @@ async function loadPage() {
   }
 }
 
+function handleSizeChange(size: number) {
+  query.pageSize = size
+  void loadPage()
+}
+
+function handlePageChange(page: number) {
+  query.pageNo = page
+  void loadPage()
+}
+
 async function loadUsers() {
-  const res = await getUserPageApi({ pageNo: 1, pageSize: 200 })
-  userOptions.value = res.records
+  const res = await getUserCandidatesApi()
+  userOptions.value = res
 }
 
 function openApprove(row: ApprovalTodoVO, action: 'approve' | 'reject') {
@@ -126,8 +136,8 @@ onMounted(async () => {
         <el-table-column prop="createTime" label="到达时间" width="180" />
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="showDetail(row)">详情</el-button>
-            <el-button
+            <el-button icon-only link type="primary" @click="showDetail(row)">详情</el-button>
+            <el-button icon-only
               v-permission="'system:approval:complete'"
               link
               type="success"
@@ -135,7 +145,7 @@ onMounted(async () => {
             >
               同意
             </el-button>
-            <el-button
+            <el-button icon-only
               v-permission="'system:approval:complete'"
               link
               type="danger"
@@ -143,7 +153,7 @@ onMounted(async () => {
             >
               驳回
             </el-button>
-            <el-button
+            <el-button icon-only
               v-permission="'system:approval:transfer'"
               link
               type="warning"
@@ -164,11 +174,13 @@ onMounted(async () => {
         :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
         class="todo__pagination"
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogAction === 'approve' ? '审批同意' : '审批驳回'" width="480px">
+    <ResponsiveDialog v-model="dialogVisible" :title="dialogAction === 'approve' ? '审批同意' : '审批驳回'" width="480px">
       <el-form label-width="80px">
         <el-form-item label="申请标题">
           <span>{{ currentTask?.title }}</span>
@@ -195,9 +207,9 @@ onMounted(async () => {
           确定{{ dialogAction === 'approve' ? '同意' : '驳回' }}
         </el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <el-dialog v-model="transferVisible" title="转办任务" width="420px">
+    <ResponsiveDialog v-model="transferVisible" title="转办任务" width="420px">
       <el-form label-width="90px">
         <el-form-item label="申请标题">
           <span>{{ currentTask?.title }}</span>
@@ -212,9 +224,9 @@ onMounted(async () => {
         <el-button @click="transferVisible = false">取消</el-button>
         <el-button type="primary" @click="submitTransfer">确定转办</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <ApprovalDetailDrawer v-model:visible="detailVisible" :instance-id="detailId" />
+    <ApprovalDetailDrawer v-model:visible="detailVisible" :instance-id="detailId" @done="loadPage" />
   </div>
 </template>
 

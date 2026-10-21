@@ -255,7 +255,7 @@ onMounted(loadTree)
         <el-table-column prop="createTime" label="创建时间" width="180" />
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button
+            <el-button icon-only
               v-permission="'system:dept:edit'"
               link
               type="primary"
@@ -263,7 +263,7 @@ onMounted(loadTree)
             >
               编辑
             </el-button>
-            <el-button
+            <el-button icon-only
               v-permission="'system:dept:delete'"
               link
               type="danger"
@@ -279,7 +279,7 @@ onMounted(loadTree)
       </el-table>
     </el-card>
 
-    <el-dialog
+    <ResponsiveDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑部门' : '新增部门'"
       width="520px"
@@ -325,7 +325,7 @@ onMounted(loadTree)
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">确定</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 

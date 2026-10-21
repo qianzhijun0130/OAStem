@@ -11,7 +11,7 @@ SET NAMES utf8mb4;
 
 -- 1) 页面菜单：挂在「系统管理」（id=10）下，排序 5，排在部门管理之后
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
-VALUES (70, '系统字典', 'system:dict', 10, 2, '/system/dict', 'system/dict/index', 'Collection', 5, 1, 1)
+VALUES (70, '系统字典', 'system:dict', 10, 2, '/system/dict', 'system/dict/index', 'Library', 5, 1, 1)
 ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_code = VALUES(menu_code),
                         parent_id = VALUES(parent_id),
                         menu_type = VALUES(menu_type), path = VALUES(path),

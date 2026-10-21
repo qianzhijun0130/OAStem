@@ -23,3 +23,48 @@ body {
   color: #303133;
   background-color: #f0f2f5;
 }
+
+/* ============================================================
+ * 响应式适配（全站）
+ * 目标：笔记本 1024 起完整展示，平板 768 基本可用，手机 375 不溢出。
+ * 仅前端 CSS，不动后端。
+ * ============================================================ */
+
+/* 1) 弹窗安全网：任何弹窗（含未改造的）宽度不得超过视口，左右各留 16px */
+.el-dialog {
+  max-width: calc(100vw - 32px);
+}
+
+/* 2) 筛选栏 / 表单控件：窄屏下内联固定宽改为整行，避免互相挤压、右侧被裁切。
+ *    选择器命中写死 style="width: Npx" 的 el-input / el-select 包装层。 */
+@media (max-width: 1024px) {
+  .el-input[style*='width'],
+  .el-select[style*='width'] {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  /* 内容区内边距收敛，窄屏更紧凑 */
+  .oa-layout__main {
+    padding: 12px;
+  }
+}
+
+
+/* 全局按钮自动图标（components/common/ActionButton.ts）：图标与文字之间留一点呼吸 */
+.action-btn__icon {
+  margin-right: 5px;
+}
+
+/* 操作列只保留图标：去掉左右内边距，按钮更紧凑 */
+.action-btn--icon-only {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+/* 表格表头与单元格统一居中（列表页视觉一致性要求） */
+.el-table th.el-table__cell > .cell,
+.el-table td.el-table__cell > .cell {
+  text-align: center;
+  justify-content: center;
+}

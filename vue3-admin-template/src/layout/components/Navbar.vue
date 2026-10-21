@@ -2,6 +2,7 @@
 import { ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import AppIcon from '@/components/icons/AppIcon.vue'
 
 defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
@@ -31,7 +32,7 @@ function goProfile() {
   <div class="oa-navbar">
     <div class="oa-navbar__left">
       <el-icon class="oa-navbar__toggle" :size="20" @click="emit('toggle')">
-        <component :is="collapsed ? 'Expand' : 'Fold'" />
+        <AppIcon :name="collapsed ? 'PanelLeftOpen' : 'PanelLeftClose'" :size="20" />
       </el-icon>
       <el-breadcrumb separator="/">
         <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>

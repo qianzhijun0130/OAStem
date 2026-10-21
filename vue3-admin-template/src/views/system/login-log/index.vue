@@ -1,29 +1,43 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { cleanLoginLogApi, exportLoginLogApi, getLoginLogPageApi } from '@/api/log'
 import { getUserPageApi } from '@/api/user'
+import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
+import ListPage from '@/components/list/ListPage.vue'
 import type { LoginLogPageQuery, LoginLogVO, UserVO } from '@/api/types'
 
 /** 清理时可选的历史区间（保留最近 N 天） */
 const RETAIN_DAY_OPTIONS = [30, 90, 180, 365]
 
-const loading = ref(false)
 const exporting = ref(false)
-const list = ref<LoginLogVO[]>([])
-const total = ref(0)
 
-/** el-date-picker 的区间值，查询时拆成 startTime / endTime */
+/** el-date-picker 的区间值，取数前拆成 startTime / endTime */
 const timeRange = ref<[string, string] | null>(null)
 
-const query = reactive<LoginLogPageQuery>({
-  pageNo: 1,
-  pageSize: 10,
-  username: undefined,
-  loginStatus: undefined,
-  ipAddress: undefined,
-})
+/** 页面私有查询条件：分页参数由 useListQuery 统一管理 */
+interface LoginLogQuery extends Omit<LoginLogPageQuery, 'pageNo' | 'pageSize'> {}
+
+const { list, total, loading, query, pageNo, pageSize, search, reset,
+        handleSizeChange, handlePageChange } =
+  useListQuery<LoginLogVO, LoginLogQuery>({
+    initialQuery: () => ({
+      userId: undefined,
+      username: undefined,
+      loginStatus: undefined,
+      ipAddress: undefined,
+      startTime: undefined,
+      endTime: undefined,
+    }),
+    fetcher: (params) => getLoginLogPageApi(params),
+    // 日期区间是页面私有语义，取数前映射为后端的 startTime/endTime
+    beforeFetch: (q) => {
+      q.startTime = timeRange.value?.[0]
+      q.endTime = timeRange.value?.[1]
+    },
+    onError: (error) => logAsyncError('加载登录日志失败', error),
+  })
 
 /**
  * 「用户」精确筛选的可选项。
@@ -43,33 +57,10 @@ const cleanAll = ref(false)
 const cleanRetainDays = ref(90)
 const cleaning = ref(false)
 
-async function loadList() {
-  loading.value = true
-  try {
-    const page = await getLoginLogPageApi({
-      ...query,
-      startTime: timeRange.value?.[0],
-      endTime: timeRange.value?.[1],
-    })
-    list.value = page.records
-    total.value = Number(page.total)
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.pageNo = 1
-  loadList()
-}
-
+/** 重置：条件由 composable 归位，日期区间是页面私有状态需一并清空 */
 function handleReset() {
-  query.userId = undefined
-  query.username = undefined
-  query.loginStatus = undefined
-  query.ipAddress = undefined
   timeRange.value = null
-  handleSearch()
+  void reset()
 }
 
 async function handleExport() {
@@ -113,11 +104,11 @@ async function handleClean() {
     : `将删除 ${before} 之前的所有登录日志，且无法恢复。`
   try {
     // 危险等级最高：全量清理要求连续两次确认
-    await ElMessageBox.confirm(`${tip}\n\n此操作不可撤销，且会在审计日志中留痕。`, `清理${cn}日志`,
+    await ElMessageBox.confirm(`${tip}\n\n此操作不可撤销，且会在审计日志中留痕。`, '清理登录日志',
       { type: 'warning', confirmButtonText: all ? '我了解风险，继续' : '确定清理' })
     if (all) {
       await ElMessageBox.confirm(
-        `最后确认：真的要清空全部${cn}日志吗？该动作会销毁所有历史追溯凭据。`,
+        '最后确认：真的要清空全部登录日志吗？该动作会销毁所有历史追溯凭据。',
         '全量清理二次确认',
         { type: 'error', confirmButtonText: '确认清空', cancelButtonText: '我再想想' },
       )
@@ -130,7 +121,7 @@ async function handleClean() {
     const deleted = await cleanLoginLogApi(all ? undefined : before, all)
     ElMessage.success(`已清理 ${deleted} 条登录日志`)
     cleanVisible.value = false
-    handleSearch()
+    await search()
   } finally {
     cleaning.value = false
   }
@@ -149,113 +140,113 @@ async function loadUserOptions() {
 }
 
 onMounted(() => {
-  loadList()
-  loadUserOptions()
+  // 列表由 useListQuery 自动加载，这里只补用户下拉
+  void loadUserOptions()
 })
 </script>
 
 <template>
   <div class="log-page">
-    <el-card shadow="never">
-      <el-form :inline="true" class="log-page__filters">
-        <el-form-item v-if="canPickUser" label="用户">
-          <el-select v-model="query.userId" placeholder="全部用户" clearable filterable class="log-page__select">
-            <el-option v-for="u in userOptions" :key="u.id" :label="`${u.realName}（${u.username}）`" :value="u.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="登录账号">
-          <el-input
-            v-model="query.username"
-            placeholder="支持模糊匹配"
-            clearable
-            class="log-page__input"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="登录状态">
-          <el-select v-model="query.loginStatus" placeholder="全部" clearable class="log-page__select">
-            <el-option label="成功" :value="1" />
-            <el-option label="失败" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="IP 地址">
-          <el-input
-            v-model="query.ipAddress"
-            placeholder="支持模糊匹配"
-            clearable
-            class="log-page__input"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="登录时间">
-          <el-date-picker
-            v-model="timeRange"
-            type="datetimerange"
-            value-format="YYYY-MM-DD HH:mm:ss"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-            class="log-page__range"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
+    <ListPage
+      :data="list"
+      :total="total"
+      :loading="loading"
+      :page-no="pageNo"
+      :page-size="pageSize"
+      :page-sizes="[10, 20, 50, 100]"
+      pagination-layout="total, sizes, prev, pager, next"
+      @size-change="handleSizeChange"
+      @current-change="handlePageChange"
+    >
+      <template #filters>
+        <el-form :inline="true" class="log-page__filters">
+          <el-form-item v-if="canPickUser" label="用户">
+            <el-select v-model="query.userId" placeholder="全部用户" clearable filterable class="log-page__select">
+              <el-option v-for="u in userOptions" :key="u.id" :label="`${u.realName}（${u.username}）`" :value="u.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="登录账号">
+            <el-input
+              v-model="query.username"
+              placeholder="支持模糊匹配"
+              clearable
+              class="log-page__input"
+              @keyup.enter="search"
+            />
+          </el-form-item>
+          <el-form-item label="登录状态">
+            <el-select v-model="query.loginStatus" placeholder="全部" clearable class="log-page__select">
+              <el-option label="成功" :value="1" />
+              <el-option label="失败" :value="0" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="IP 地址">
+            <el-input
+              v-model="query.ipAddress"
+              placeholder="支持模糊匹配"
+              clearable
+              class="log-page__input"
+              @keyup.enter="search"
+            />
+          </el-form-item>
+          <el-form-item label="登录时间">
+            <el-date-picker
+              v-model="timeRange"
+              type="datetimerange"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+              class="log-page__range"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="search">查询</el-button>
+            <el-button @click="handleReset">重置</el-button>
+          </el-form-item>
+        </el-form>
 
-      <div class="log-page__toolbar">
-        <el-button v-permission="'system:login-log:export'" :loading="exporting" @click="handleExport">
-          导出 Excel
-        </el-button>
-        <el-button v-permission="'system:login-log:clean'" type="danger" plain @click="openCleanDialog">
-          清理日志
-        </el-button>
-      </div>
+        <!-- 工具栏保持在筛选区下方独立一行（与改造前视觉一致） -->
+        <div class="log-page__toolbar">
+          <el-button v-permission="'system:login-log:export'" :loading="exporting" @click="handleExport">
+            导出 Excel
+          </el-button>
+          <el-button v-permission="'system:login-log:clean'" type="danger" plain @click="openCleanDialog">
+            清理日志
+          </el-button>
+        </div>
+      </template>
 
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="登录账号" min-width="120" />
-        <el-table-column label="登录类型" width="110">
-          <template #default="{ row }">
-            {{ row.loginType === 1 ? '账号密码登录' : '其他' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="ipAddress" label="IP 地址" min-width="130" />
-        <el-table-column prop="location" label="登录地点" min-width="110">
-          <template #default="{ row }">{{ row.location || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="browser" label="浏览器" min-width="110">
-          <template #default="{ row }">{{ row.browser || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="os" label="操作系统" min-width="110">
-          <template #default="{ row }">{{ row.os || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.loginStatus === 1 ? 'success' : 'danger'" size="small">
-              {{ row.loginStatus === 1 ? '成功' : '失败' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="failReason" label="失败原因" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.failReason || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="createTime" label="登录时间" width="170" />
-      </el-table>
+      <el-table-column prop="id" label="ID" width="80" />
+      <el-table-column prop="username" label="登录账号" min-width="120" />
+      <el-table-column label="登录类型" width="110">
+        <template #default="{ row }">
+          {{ row.loginType === 1 ? '账号密码登录' : '其他' }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="ipAddress" label="IP 地址" min-width="130" />
+      <el-table-column prop="location" label="登录地点" min-width="110">
+        <template #default="{ row }">{{ row.location || '-' }}</template>
+      </el-table-column>
+      <el-table-column prop="browser" label="浏览器" min-width="110">
+        <template #default="{ row }">{{ row.browser || '-' }}</template>
+      </el-table-column>
+      <el-table-column prop="os" label="操作系统" min-width="110">
+        <template #default="{ row }">{{ row.os || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.loginStatus === 1 ? 'success' : 'danger'" size="small">
+            {{ row.loginStatus === 1 ? '成功' : '失败' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="failReason" label="失败原因" min-width="140" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.failReason || '-' }}</template>
+      </el-table-column>
+      <el-table-column prop="createTime" label="登录时间" width="170" />
+    </ListPage>
 
-      <el-pagination
-        v-model:current-page="query.pageNo"
-        v-model:page-size="query.pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        class="log-page__pagination"
-        @current-change="loadList"
-        @size-change="handleSearch"
-      />
-    </el-card>
-
-    <el-dialog v-model="cleanVisible" title="清理登录日志" width="460px">
+    <ResponsiveDialog v-model="cleanVisible" title="清理登录日志" width="460px">
       <el-alert
         type="warning"
         :closable="false"
@@ -284,7 +275,7 @@ onMounted(() => {
         <el-button @click="cleanVisible = false">取消</el-button>
         <el-button type="danger" :loading="cleaning" @click="handleClean">确定清理</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
@@ -312,11 +303,6 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 8px;
   margin-bottom: 12px;
-}
-
-.log-page__pagination {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .log-page__clean-form {

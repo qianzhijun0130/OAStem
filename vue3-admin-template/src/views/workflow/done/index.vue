@@ -27,6 +27,16 @@ async function loadPage() {
   }
 }
 
+function handleSizeChange(size: number) {
+  query.pageSize = size
+  void loadPage()
+}
+
+function handlePageChange(page: number) {
+  query.pageNo = page
+  void loadPage()
+}
+
 onMounted(loadPage)
 </script>
 
@@ -57,6 +67,8 @@ onMounted(loadPage)
         :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
         class="done__pagination"
       />
     </el-card>

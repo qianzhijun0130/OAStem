@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import AppIcon from '@/components/icons/AppIcon.vue'
 import type { MenuVO } from '@/api/types'
 
 defineProps<{ collapsed: boolean }>()
@@ -36,7 +37,7 @@ function childrenOf(menu: MenuVO): MenuVO[] {
     <template v-for="menu in menuTree" :key="menu.id">
       <el-menu-item v-if="menu.menuType === 2 && menu.path" :index="menu.path">
         <el-icon v-if="menu.icon">
-          <component :is="menu.icon" />
+          <AppIcon :name="menu.icon" :size="18" />
         </el-icon>
         <template #title>{{ menu.menuName }}</template>
       </el-menu-item>
@@ -44,13 +45,13 @@ function childrenOf(menu: MenuVO): MenuVO[] {
       <el-sub-menu v-else-if="menu.menuType === 1 && childrenOf(menu).length > 0" :index="`dir-${menu.id}`">
         <template #title>
           <el-icon v-if="menu.icon">
-            <component :is="menu.icon" />
+            <AppIcon :name="menu.icon" :size="18" />
           </el-icon>
           <span>{{ menu.menuName }}</span>
         </template>
         <el-menu-item v-for="child in childrenOf(menu)" :key="child.id" :index="child.path">
           <el-icon v-if="child.icon">
-            <component :is="child.icon" />
+            <AppIcon :name="child.icon" :size="18" />
           </el-icon>
           <template #title>{{ child.menuName }}</template>
         </el-menu-item>

@@ -207,7 +207,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click.stop="openDetail(row)">查看</el-button>
+            <el-button icon-only link type="primary" size="small" @click.stop="openDetail(row)">查看</el-button>
           </template>
         </el-table-column>
       </el-table>

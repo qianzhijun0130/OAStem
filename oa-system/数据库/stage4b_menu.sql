@@ -21,7 +21,7 @@ ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_code = VALUES(menu_c
 -- 2) 页面菜单
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
 VALUES
-  (81, '公告管理', 'system:notice', 80, 2, '/notice/manage', 'notice/manage/index', 'EditPen', 1, 1, 1),
+  (81, '公告管理', 'system:notice', 80, 2, '/notice/manage', 'notice/manage/index', 'PenLine', 1, 1, 1),
   (82, '我的公告', 'notice:my',      80, 2, '/notice/my',     'notice/my/index',     'ChatDotSquare', 2, 1, 1)
 ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_code = VALUES(menu_code),
                         parent_id = VALUES(parent_id), menu_type = VALUES(menu_type),
@@ -45,7 +45,7 @@ ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), parent_id = VALUES(parent
 
 -- 4) 目录
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
-VALUES (90, '日志管理', 'log', 0, 1, '/log', 'Layout', 'Document', 30, 1, 1)
+VALUES (90, '日志管理', 'log', 0, 1, '/log', 'Layout', 'FileText', 30, 1, 1)
 ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_code = VALUES(menu_code),
                         parent_id = VALUES(parent_id), menu_type = VALUES(menu_type),
                         path = VALUES(path), component = VALUES(component), icon = VALUES(icon),
@@ -54,8 +54,8 @@ ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_code = VALUES(menu_c
 -- 5) 页面菜单
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
 VALUES
-  (91, '登录日志', 'system:login-log',     90, 2, '/log/login-log',     'system/login-log/index',     'Key',     1, 1, 1),
-  (92, '操作日志', 'system:operation-log', 90, 2, '/log/operation-log', 'system/operation-log/index', 'Tickets', 2, 1, 1)
+  (91, '登录日志', 'system:login-log',     90, 2, '/log/login-log',     'system/login-log/index',     'KeyRound',     1, 1, 1),
+  (92, '操作日志', 'system:operation-log', 90, 2, '/log/operation-log', 'system/operation-log/index', 'Ticket', 2, 1, 1)
 ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_code = VALUES(menu_code),
                         parent_id = VALUES(parent_id), menu_type = VALUES(menu_type),
                         path = VALUES(path), component = VALUES(component), icon = VALUES(icon),

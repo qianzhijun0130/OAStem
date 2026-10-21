@@ -12,7 +12,7 @@ import {
 } from '@/api/notice'
 import { getDictDataByTypeApi } from '@/api/dict'
 import { getDeptTreeApi } from '@/api/dept'
-import { getUserPageApi } from '@/api/user'
+import { getUserCandidatesApi } from '@/api/user'
 import { uploadFileApi } from '@/api/file'
 import type {
   DeptVO,
@@ -22,7 +22,9 @@ import type {
   NoticeVO,
   UserVO,
 } from '@/api/types'
+import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
+import ListPage from '@/components/list/ListPage.vue'
 
 /** 发布范围 */
 const SCOPE_ALL = 1
@@ -34,18 +36,24 @@ const STATUS_DRAFT = 0
 const STATUS_PUBLISHED = 1
 const STATUS_OFFLINE = 2
 
-const loading = ref(false)
-const list = ref<NoticeVO[]>([])
-const total = ref(0)
+/** 页面私有查询条件：分页参数由 useListQuery 统一管理 */
+interface NoticeQuery extends Omit<NoticePageQuery, 'pageNo' | 'pageSize'> {}
 
-const query = reactive<NoticePageQuery>({
-  pageNo: 1,
-  pageSize: 10,
-  noticeTitle: undefined,
-  noticeType: undefined,
-  noticeLevel: undefined,
-  noticeStatus: undefined,
-})
+// 查询/分页/加载态交给组合式函数，页面只保留业务动作
+const { list, total, loading, query, pageNo, pageSize, load, search, reset, refresh,
+        handleSizeChange, handlePageChange } =
+  useListQuery<NoticeVO, NoticeQuery>({
+    initialQuery: () => ({
+      noticeTitle: undefined,
+      noticeType: undefined,
+      noticeLevel: undefined,
+      noticeStatus: undefined,
+    }),
+    fetcher: (params) => getNoticePageApi(params),
+    // 列表由页面在选项加载完成后手动触发，保持「先选项、后列表」的原顺序
+    immediate: false,
+    onError: (error) => logAsyncError('加载公告列表失败', error),
+  })
 
 /** 公告类型 / 级别取自数据字典，新增枚举值只需在字典管理里加一条 */
 const typeOptions = ref<DictDataVO[]>([])
@@ -98,44 +106,18 @@ function createEmptyForm(): NoticeFormModel {
   }
 }
 
-async function loadList() {
-  loading.value = true
-  try {
-    const page = await getNoticePageApi(query)
-    list.value = page.records
-    total.value = Number(page.total)
-  } catch (error) {
-    logAsyncError('加载公告列表失败', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.pageNo = 1
-  loadList()
-}
-
-function handleReset() {
-  query.noticeTitle = undefined
-  query.noticeType = undefined
-  query.noticeLevel = undefined
-  query.noticeStatus = undefined
-  handleSearch()
-}
-
 async function loadOptions() {
   try {
     const [types, levels, depts, users] = await Promise.all([
       getDictDataByTypeApi('notice_type'),
       getDictDataByTypeApi('notice_level'),
       getDeptTreeApi(),
-      getUserPageApi({ pageNo: 1, pageSize: 200 }),
+      getUserCandidatesApi(),
     ])
     typeOptions.value = types
     levelOptions.value = levels
     deptTree.value = depts
-    userOptions.value = users.records
+    userOptions.value = users
   } catch (error) {
     logAsyncError('加载公告表单选项失败', error)
   }
@@ -207,7 +189,7 @@ async function submitForm() {
     })
     ElMessage.success(editingId.value ? '公告已更新' : '公告已保存为草稿')
     dialogVisible.value = false
-    await loadList()
+    await refresh()
   } finally {
     submitting.value = false
   }
@@ -232,7 +214,7 @@ async function handlePublish(row: NoticeVO) {
   try {
     await publishNoticeApi(row.id)
     ElMessage.success('公告已发布')
-    await loadList()
+    await refresh()
   } catch (error) {
     logAsyncError('发布公告失败', error)
   }
@@ -246,7 +228,7 @@ async function handleOffline(row: NoticeVO) {
   }
   await offlineNoticeApi(row.id)
   ElMessage.success('公告已下架')
-  await loadList()
+  await refresh()
 }
 
 async function handleToggleTop(row: NoticeVO) {
@@ -254,7 +236,7 @@ async function handleToggleTop(row: NoticeVO) {
     const next = row.topFlag === 1 ? 0 : 1
     await updateNoticeTopApi(row.id, next)
     ElMessage.success(next === 1 ? '已置顶' : '已取消置顶')
-    await loadList()
+    await refresh()
   } catch (error) {
     logAsyncError('置顶操作失败', error)
   }
@@ -272,7 +254,7 @@ async function handleDelete(row: NoticeVO) {
   }
   await deleteNoticeApi(row.id)
   ElMessage.success('已删除')
-  await loadList()
+  await refresh()
 }
 
 /* ---------- 展示辅助 ---------- */
@@ -312,165 +294,165 @@ function scopeText(scope: number): string {
 }
 
 onMounted(async () => {
+  // 保持原顺序：先取字典/部门/人员选项，再加载列表（标签映射依赖选项）
   await loadOptions()
-  await loadList()
+  await load()
 })
 </script>
 
 <template>
   <div class="notice-manage">
-    <el-card shadow="never">
-      <el-form :inline="true" class="notice-manage__filters">
-        <el-form-item label="标题">
-          <el-input
-            v-model="query.noticeTitle"
-            placeholder="支持模糊匹配"
-            clearable
-            class="notice-manage__input"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="query.noticeType" placeholder="全部" clearable class="notice-manage__select">
-            <el-option
-              v-for="item in typeOptions"
-              :key="item.id"
-              :label="item.itemLabel"
-              :value="Number(item.itemValue)"
+    <ListPage
+      :data="list"
+      :total="total"
+      :loading="loading"
+      :page-no="pageNo"
+      :page-size="pageSize"
+      pagination-layout="total, sizes, prev, pager, next"
+      @size-change="handleSizeChange"
+      @current-change="handlePageChange"
+    >
+      <template #filters>
+        <el-form :inline="true" class="notice-manage__filters">
+          <el-form-item label="标题">
+            <el-input
+              v-model="query.noticeTitle"
+              placeholder="支持模糊匹配"
+              clearable
+              class="notice-manage__input"
+              @keyup.enter="search"
             />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="级别">
-          <el-select v-model="query.noticeLevel" placeholder="全部" clearable class="notice-manage__select">
-            <el-option
-              v-for="item in levelOptions"
-              :key="item.id"
-              :label="item.itemLabel"
-              :value="Number(item.itemValue)"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.noticeStatus" placeholder="全部" clearable class="notice-manage__select">
-            <el-option label="草稿" :value="STATUS_DRAFT" />
-            <el-option label="已发布" :value="STATUS_PUBLISHED" />
-            <el-option label="已下架" :value="STATUS_OFFLINE" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
+          </el-form-item>
+          <el-form-item label="类型">
+            <el-select v-model="query.noticeType" placeholder="全部" clearable class="notice-manage__select">
+              <el-option
+                v-for="item in typeOptions"
+                :key="item.id"
+                :label="item.itemLabel"
+                :value="Number(item.itemValue)"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="级别">
+            <el-select v-model="query.noticeLevel" placeholder="全部" clearable class="notice-manage__select">
+              <el-option
+                v-for="item in levelOptions"
+                :key="item.id"
+                :label="item.itemLabel"
+                :value="Number(item.itemValue)"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="query.noticeStatus" placeholder="全部" clearable class="notice-manage__select">
+              <el-option label="草稿" :value="STATUS_DRAFT" />
+              <el-option label="已发布" :value="STATUS_PUBLISHED" />
+              <el-option label="已下架" :value="STATUS_OFFLINE" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="search">查询</el-button>
+            <el-button @click="reset">重置</el-button>
+          </el-form-item>
+        </el-form>
 
-      <div class="notice-manage__toolbar">
-        <el-button v-permission="'system:notice:add'" type="primary" @click="openDialog()">
-          新增公告
-        </el-button>
-      </div>
+        <!-- 工具栏保持在筛选区下方的独立一行（与改造前视觉一致） -->
+        <div class="notice-manage__toolbar">
+          <el-button v-permission="'system:notice:add'" type="primary" @click="openDialog()">
+            新增公告
+          </el-button>
+        </div>
+      </template>
 
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column label="标题" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-tag v-if="row.topFlag === 1" size="small" type="danger" class="notice-manage__top">置顶</el-tag>
-            {{ row.noticeTitle }}
-          </template>
-        </el-table-column>
-        <el-table-column label="类型" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" :type="typeTagClass(row.noticeType)">{{ typeLabel(row.noticeType) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="级别" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" :type="levelTagClass(row.noticeLevel)">
-              {{ levelLabel(row.noticeLevel) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" :type="statusTagType(row.noticeStatus)">
-              {{ statusText(row.noticeStatus) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="发布范围" width="110">
-          <template #default="{ row }">{{ scopeText(row.publishScope) }}</template>
-        </el-table-column>
-        <el-table-column prop="publisherName" label="发布人" width="110" />
-        <el-table-column label="阅读情况" width="110">
-          <template #default="{ row }">{{ row.readCount ?? 0 }} 人已读</template>
-        </el-table-column>
-        <el-table-column prop="publishTime" label="发布时间" width="170">
-          <template #default="{ row }">{{ row.publishTime || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.noticeStatus === STATUS_DRAFT"
-              v-permission="'system:notice:add'"
-              link
-              type="primary"
-              size="small"
-              @click="openDialog(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              v-if="row.noticeStatus !== STATUS_PUBLISHED"
-              v-permission="'system:notice:publish'"
-              link
-              type="success"
-              size="small"
-              @click="handlePublish(row)"
-            >
-              发布
-            </el-button>
-            <el-button
-              v-else
-              v-permission="'system:notice:publish'"
-              link
-              type="warning"
-              size="small"
-              @click="handleOffline(row)"
-            >
-              下架
-            </el-button>
-            <el-button
-              v-permission="'system:notice:edit'"
-              link
-              size="small"
-              @click="handleToggleTop(row)"
-            >
-              {{ row.topFlag === 1 ? '取消置顶' : '置顶' }}
-            </el-button>
-            <el-button
-              v-permission="'system:notice:delete'"
-              link
-              type="danger"
-              size="small"
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <el-table-column label="标题" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-tag v-if="row.topFlag === 1" size="small" type="danger" class="notice-manage__top">置顶</el-tag>
+          {{ row.noticeTitle }}
+        </template>
+      </el-table-column>
+      <el-table-column label="类型" width="100">
+        <template #default="{ row }">
+          <el-tag size="small" :type="typeTagClass(row.noticeType)">{{ typeLabel(row.noticeType) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="级别" width="100">
+        <template #default="{ row }">
+          <el-tag size="small" :type="levelTagClass(row.noticeLevel)">
+            {{ levelLabel(row.noticeLevel) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag size="small" :type="statusTagType(row.noticeStatus)">
+            {{ statusText(row.noticeStatus) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="发布范围" width="110">
+        <template #default="{ row }">{{ scopeText(row.publishScope) }}</template>
+      </el-table-column>
+      <el-table-column prop="publisherName" label="发布人" width="110" />
+      <el-table-column label="阅读情况" width="110">
+        <template #default="{ row }">{{ row.readCount ?? 0 }} 人已读</template>
+      </el-table-column>
+      <el-table-column prop="publishTime" label="发布时间" width="170">
+        <template #default="{ row }">{{ row.publishTime || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="250" fixed="right">
+        <template #default="{ row }">
+          <el-button icon-only
+            v-if="row.noticeStatus === STATUS_DRAFT"
+            v-permission="'system:notice:add'"
+            link
+            type="primary"
+            size="small"
+            @click="openDialog(row)"
+          >
+            编辑
+          </el-button>
+          <el-button icon-only
+            v-if="row.noticeStatus !== STATUS_PUBLISHED"
+            v-permission="'system:notice:publish'"
+            link
+            type="success"
+            size="small"
+            @click="handlePublish(row)"
+          >
+            发布
+          </el-button>
+          <el-button icon-only
+            v-else
+            v-permission="'system:notice:publish'"
+            link
+            type="warning"
+            size="small"
+            @click="handleOffline(row)"
+          >
+            下架
+          </el-button>
+          <el-button icon-only
+            v-permission="'system:notice:edit'"
+            link
+            size="small"
+            @click="handleToggleTop(row)"
+          >
+            {{ row.topFlag === 1 ? '取消置顶' : '置顶' }}
+          </el-button>
+          <el-button icon-only
+            v-permission="'system:notice:delete'"
+            link
+            type="danger"
+            size="small"
+            @click="handleDelete(row)"
+          >
+            删除
+          </el-button>
+        </template>
+      </el-table-column>
+    </ListPage>
 
-      <el-pagination
-        v-model:current-page="query.pageNo"
-        v-model:page-size="query.pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        class="notice-manage__pagination"
-        @current-change="loadList"
-        @size-change="handleSearch"
-      />
-    </el-card>
-
-    <el-dialog
+    <ResponsiveDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑公告' : '新增公告'"
       width="720px"
@@ -580,7 +562,7 @@ onMounted(async () => {
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submitForm">保存为草稿</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
@@ -603,11 +585,6 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 12px;
-}
-
-.notice-manage__pagination {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .notice-manage__top {

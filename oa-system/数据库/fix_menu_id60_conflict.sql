@@ -22,7 +22,7 @@ WHERE id = 60;
 -- 2) 「系统字典」页面菜单迁移到空闲 id=70（挂在「系统管理」id=10 下）
 DELETE FROM oa_menu WHERE id = 70;
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
-VALUES (70, '系统字典', 'system:dict', 10, 2, '/system/dict', 'system/dict/index', 'Collection', 5, 1, 1);
+VALUES (70, '系统字典', 'system:dict', 10, 2, '/system/dict', 'system/dict/index', 'Library', 5, 1, 1);
 
 -- 3) 字典按钮权限改挂到新的页面菜单 id=70
 UPDATE oa_menu SET parent_id = 70 WHERE menu_code LIKE 'system:dict:%';

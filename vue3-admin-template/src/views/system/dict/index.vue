@@ -18,6 +18,9 @@ import type {
   DictTypeSaveRequest,
   DictTypeVO,
 } from '@/api/types'
+import { useListQuery } from '@/composables/useListQuery'
+import { logAsyncError } from '@/utils/asyncGuard'
+import ListPage from '@/components/list/ListPage.vue'
 
 /** el-tag 支持的样式类型，用于配置字典项的标签颜色 */
 const CSS_CLASS_OPTIONS = ['info', 'primary', 'success', 'warning', 'danger']
@@ -62,15 +65,39 @@ const filteredTypes = computed(() => {
 
 /* ========== 右侧：字典数据项 ========== */
 
-const dataLoading = ref(false)
-const dataList = ref<DictDataVO[]>([])
-const dataTotal = ref(0)
+/**
+ * 右侧字典数据的查询条件。
+ *
+ * <p>不含 {@code dictType}：它由左侧选中的类型决定，属于「上下文」而非用户可填条件，
+ * 由 fetcher 在取数时合并，避免它出现在筛选 UI 里。</p>
+ */
+interface DictDataQuery extends Omit<DictDataPageQuery, 'pageNo' | 'pageSize' | 'dictType'> {}
 
-const dataQuery = reactive<DictDataPageQuery>({
-  pageNo: 1,
-  pageSize: 10,
-  itemLabel: undefined,
-  status: undefined,
+// 右栏分页/加载态交给组合式函数（immediate=false：挂载时尚未确定字典类型）
+const {
+  list: dataList,
+  total: dataTotal,
+  loading: dataLoading,
+  query: dataQuery,
+  pageNo,
+  pageSize,
+  refresh: refreshData,
+  search: searchData,
+  reset: resetData,
+  handleSizeChange: handleDataSizeChange,
+  handlePageChange: handleDataPageChange,
+} = useListQuery<DictDataVO, DictDataQuery>({
+  initialQuery: () => ({ itemLabel: undefined, status: undefined }),
+  fetcher: (params) => {
+    const dictType = activeType.value?.dictType
+    if (!dictType) {
+      // 未选中类型：返回空页而不是发一个无 dictType 的请求（后者会查出全部数据）
+      return Promise.resolve({ records: [], total: 0 })
+    }
+    return getDictDataPageApi({ ...params, dictType })
+  },
+  immediate: false,
+  onError: (error) => logAsyncError('加载字典数据失败', error),
 })
 
 const dataDialogVisible = ref(false)
@@ -115,27 +142,8 @@ async function loadTypes() {
 
 function selectType(type: DictTypeVO) {
   activeType.value = type
-  dataQuery.pageNo = 1
-  dataQuery.itemLabel = undefined
-  dataQuery.status = undefined
-  loadData()
-}
-
-async function loadData() {
-  const type = activeType.value
-  if (!type) {
-    dataList.value = []
-    dataTotal.value = 0
-    return
-  }
-  dataLoading.value = true
-  try {
-    const page = await getDictDataPageApi({ ...dataQuery, dictType: type.dictType })
-    dataList.value = page.records
-    dataTotal.value = Number(page.total)
-  } finally {
-    dataLoading.value = false
-  }
+  // 切换类型等价于「清空条件 + 回第 1 页 + 重新加载」
+  void resetData()
 }
 
 /* ---------- 字典类型操作 ---------- */
@@ -220,7 +228,7 @@ async function submitData() {
     await saveDictDataApi({ ...dataForm, id: editingDataId.value })
     ElMessage.success(editingDataId.value ? '字典项已更新' : '字典项已新增')
     dataDialogVisible.value = false
-    await loadData()
+    await refreshData()
   } finally {
     dataSubmitting.value = false
   }
@@ -230,7 +238,7 @@ async function toggleDataStatus(row: DictDataVO) {
   const next = row.status === 1 ? 0 : 1
   await updateDictDataStatusApi(row.id, next)
   ElMessage.success(next === 1 ? '已启用' : '已停用')
-  await loadData()
+  await refreshData()
 }
 
 async function removeData(row: DictDataVO) {
@@ -241,7 +249,7 @@ async function removeData(row: DictDataVO) {
   }
   await deleteDictDataApi(row.id)
   ElMessage.success('已删除')
-  await loadData()
+  await refreshData()
 }
 
 onMounted(loadTypes)
@@ -309,9 +317,9 @@ onMounted(loadTypes)
                 clearable
                 size="small"
                 class="dict__filter-item"
-                @keyup.enter="loadData"
+                @keyup.enter="searchData"
               />
-              <el-button size="small" @click="loadData">查询</el-button>
+              <el-button size="small" @click="searchData">查询</el-button>
               <el-button v-permission="'system:dict:add'" type="primary" size="small" @click="openDataDialog()">
                 新增
               </el-button>
@@ -319,7 +327,17 @@ onMounted(loadTypes)
           </div>
         </template>
 
-        <el-table v-loading="dataLoading" :data="dataList" border>
+        <ListPage
+          :card="false"
+          :data="dataList"
+          :total="dataTotal"
+          :loading="dataLoading"
+          :page-no="pageNo"
+          :page-size="pageSize"
+          pagination-layout="total, sizes, prev, pager, next"
+          @size-change="handleDataSizeChange"
+          @current-change="handleDataPageChange"
+        >
           <el-table-column prop="itemLabel" label="显示名称" min-width="120" />
           <el-table-column prop="itemValue" label="数据值" min-width="100" />
           <el-table-column prop="sort" label="排序" width="70" />
@@ -346,31 +364,20 @@ onMounted(loadTypes)
           </el-table-column>
           <el-table-column label="操作" width="130" fixed="right">
             <template #default="{ row }">
-              <el-button v-permission="'system:dict:edit'" link type="primary" size="small" @click="openDataDialog(row)">
+              <el-button icon-only v-permission="'system:dict:edit'" link type="primary" size="small" @click="openDataDialog(row)">
                 编辑
               </el-button>
-              <el-button v-permission="'system:dict:delete'" link type="danger" size="small" @click="removeData(row)">
+              <el-button icon-only v-permission="'system:dict:delete'" link type="danger" size="small" @click="removeData(row)">
                 删除
               </el-button>
             </template>
           </el-table-column>
-        </el-table>
-
-        <el-pagination
-          v-model:current-page="dataQuery.pageNo"
-          v-model:page-size="dataQuery.pageSize"
-          :total="dataTotal"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          class="dict__pagination"
-          @current-change="loadData"
-          @size-change="loadData"
-        />
+        </ListPage>
       </el-card>
     </el-col>
   </el-row>
 
-  <el-dialog
+  <ResponsiveDialog
     v-model="typeDialogVisible"
     :title="editingTypeId ? '编辑字典类型' : '新增字典类型'"
     width="480px"
@@ -401,9 +408,9 @@ onMounted(loadTypes)
       <el-button @click="typeDialogVisible = false">取消</el-button>
       <el-button type="primary" :loading="typeSubmitting" @click="submitType">确定</el-button>
     </template>
-  </el-dialog>
+  </ResponsiveDialog>
 
-  <el-dialog
+  <ResponsiveDialog
     v-model="dataDialogVisible"
     :title="editingDataId ? '编辑字典数据' : '新增字典数据'"
     width="520px"
@@ -443,7 +450,7 @@ onMounted(loadTypes)
       <el-button @click="dataDialogVisible = false">取消</el-button>
       <el-button type="primary" :loading="dataSubmitting" @click="submitData">确定</el-button>
     </template>
-  </el-dialog>
+  </ResponsiveDialog>
 </template>
 
 <style scoped>
@@ -527,8 +534,4 @@ onMounted(loadTypes)
   display: flex;
 }
 
-.dict__pagination {
-  margin-top: 12px;
-  justify-content: flex-end;
-}
 </style>

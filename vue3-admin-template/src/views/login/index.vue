@@ -3,6 +3,7 @@ import { reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { useUserStore } from "@/stores/user";
+import AppIcon from "@/components/icons/AppIcon.vue";
 import type { LoginRequest } from "@/api/types";
 
 const route = useRoute();
@@ -77,20 +78,20 @@ async function handleLogin() {
         @keyup.enter="handleLogin"
       >
         <el-form-item prop="username">
-          <el-input
-            v-model="form.username"
-            placeholder="请输入用户名"
-            :prefix-icon="'User'"
-          />
+          <el-input v-model="form.username" placeholder="请输入用户名">
+            <!-- 图标走 Lucide（不再用 :prefix-icon 字符串，那依赖已移除的 EP 全局注册）；
+                 刻意不加 tooltip：浮层触发器会被 Tab 聚焦，导致账号填完按 Tab 时焦点落到图标上而不是密码框 -->
+            <template #prefix>
+              <AppIcon name="User" :size="16" class="login__prefix" />
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            placeholder="请输入密码"
-            :prefix-icon="'Lock'"
-          />
+          <el-input v-model="form.password" type="password" show-password placeholder="请输入密码">
+            <template #prefix>
+              <AppIcon name="Lock" :size="16" class="login__prefix" />
+            </template>
+          </el-input>
         </el-form-item>
         <el-button
           type="primary"
@@ -103,14 +104,17 @@ async function handleLogin() {
         </el-button>
       </el-form>
 
-      <div class="login-card__tip">
-        初始账号 admin，首次登录后请及时修改密码
-      </div>
+      <div class="login-card__tip">首次登录后请及时修改密码</div>
     </el-card>
   </div>
 </template>
 
 <style scoped>
+/* 输入框前缀图标：与文字基线垂直居中，颜色随输入框语义色 */
+.login__prefix {
+  color: var(--el-text-color-placeholder);
+}
+
 .login-page {
   display: flex;
   align-items: center;

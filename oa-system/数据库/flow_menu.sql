@@ -3,7 +3,7 @@ SET NAMES utf8mb4;
 
 -- 1) 目录：审批中心
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
-VALUES (50, '审批中心', 'workflow', 0, 1, '/workflow', 'Layout', 'Promotion', 10, 1, 1)
+VALUES (50, '审批中心', 'workflow', 0, 1, '/workflow', 'Layout', 'Send', 10, 1, 1)
 ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), parent_id = VALUES(parent_id),
                         menu_type = VALUES(menu_type), path = VALUES(path),
                         component = VALUES(component), icon = VALUES(icon),
@@ -12,11 +12,11 @@ ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), parent_id = VALUES(parent
 -- 2) 页面菜单
 INSERT INTO oa_menu (id, menu_name, menu_code, parent_id, menu_type, path, component, icon, sort, visible, status)
 VALUES
-  (51, '流程模板', 'system:flow',        50, 2, '/workflow/definition', 'workflow/definition/index', 'Share',      1, 1, 1),
-  (52, '发起申请', 'system:approval:apply', 50, 2, '/workflow/apply',      'workflow/apply/index',      'EditPen',    2, 1, 1),
+  (51, '流程模板', 'system:flow',        50, 2, '/workflow/definition', 'workflow/definition/index', 'Share2',      1, 1, 1),
+  (52, '发起申请', 'system:approval:apply', 50, 2, '/workflow/apply',      'workflow/apply/index',      'PenLine',    2, 1, 1),
   (53, '我的待办', 'system:approval:todo',  50, 2, '/workflow/todo',       'workflow/todo/index',       'Clock',      3, 1, 1),
-  (54, '我的已办', 'system:approval:done',  50, 2, '/workflow/done',       'workflow/done/index',       'Select',     4, 1, 1),
-  (55, '我的发起', 'system:approval:mine',  50, 2, '/workflow/mine',       'workflow/mine/index',       'Document',   5, 1, 1)
+  (54, '我的已办', 'system:approval:done',  50, 2, '/workflow/done',       'workflow/done/index',       'CircleCheck',     4, 1, 1),
+  (55, '我的发起', 'system:approval:mine',  50, 2, '/workflow/mine',       'workflow/mine/index',       'FileText',   5, 1, 1)
 ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), parent_id = VALUES(parent_id),
                         menu_type = VALUES(menu_type), path = VALUES(path),
                         component = VALUES(component), icon = VALUES(icon),

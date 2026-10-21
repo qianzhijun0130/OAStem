@@ -2,8 +2,25 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import * as ElementPlusIcons from '@element-plus/icons-vue'
+import ResponsiveDialog from './components/ResponsiveDialog.vue'
+import ActionButton from './components/common/ActionButton'
 import 'element-plus/dist/index.css'
+
+/**
+ * FormCreate 低代码表单：渲染器（@form-create/element-ui）+ 可视化设计器（@form-create/designer）。
+ *
+ * 渲染器用于「发起申请」「审批详情」按规则 JSON 动态渲染表单；设计器用于「表单管理」里拖拽生成规则。
+ * 两者都依赖 Element Plus 渲染栈，故必须与 ElementPlus 同时挂载，且**不可**再引入 Element UI（Vue2 栈）。
+ *
+ * ⚠️ 关键：`@form-create/element-ui` 的默认导出是一个**组件定义对象**
+ * （含 name/props/setup），并非 Vue 插件对象，直接 `app.use()` 不会注册全局组件。
+ * 那样写不会报错，但模板里的 `<form-create>` 会退化成未知自定义元素 —— 表单区域一片空白，
+ * 唯有 pageerror 也捕获不到。必须显式 `app.component()` 注册。
+ * 组件真实 props 是 `rule` + `option`（单数），不是 Vue2 时代的 `options`。
+ */
+import FcRender from '@form-create/element-ui'
+
+import designer from '@form-create/designer'
 
 import App from './App.vue'
 import router from './router'
@@ -36,14 +53,24 @@ window.addEventListener('unhandledrejection', (event) => {
   event.preventDefault()
 })
 
-// 全局注册图标：后端 oa_menu.icon 存图标名（如 HomeFilled），侧边栏通过 <component :is> 动态渲染
-for (const [name, component] of Object.entries(ElementPlusIcons)) {
-  app.component(name, component)
-}
+// 图标统一走 Lucide：由 `components/icons/AppIcon.vue` + `utils/icons.ts` 按名字解析，
+// 不再全局注册 Element Plus 图标（那会把 200+ 个图标组件全打进包，且与 Lucide 混用两套风格）。
 
 app.directive('permission', permission)
 
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+
+// 全局接管 el-button：按文案自动加 Lucide 图标 + 悬停提示（须在 ElementPlus 之后注册才能覆盖）
+app.component('ElButton', ActionButton)
+
+// 响应式弹窗：封装 el-dialog，窄屏自动收缩不溢出（桌面端仍保持传入 width）
+app.component('ResponsiveDialog', ResponsiveDialog)
+
+// FormCreate 渲染器：全局注册 <form-create> 组件（导出对象是组件定义，不是 Vue 插件）
+app.component('FormCreate', FcRender)
+// FormCreate 设计器：提供 <fc-designer> 组件；规则解析沿用同一套渲染器，故无需重复注册
+app.use(designer)
+
 app.mount('#app')

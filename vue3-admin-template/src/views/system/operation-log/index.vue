@@ -1,27 +1,42 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { cleanOperationLogApi, exportOperationLogApi, getOperationLogPageApi } from '@/api/log'
 import { getUserPageApi } from '@/api/user'
+import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
+import ListPage from '@/components/list/ListPage.vue'
 import type { OperationLogPageQuery, OperationLogVO, UserVO } from '@/api/types'
 
 const RETAIN_DAY_OPTIONS = [30, 90, 180, 365]
 
-const loading = ref(false)
 const exporting = ref(false)
-const list = ref<OperationLogVO[]>([])
-const total = ref(0)
 
+/** el-date-picker 的区间值，取数前拆成 startTime / endTime */
 const timeRange = ref<[string, string] | null>(null)
 
-const query = reactive<OperationLogPageQuery>({
-  pageNo: 1,
-  pageSize: 10,
-  username: undefined,
-  module: undefined,
-  operationStatus: undefined,
-})
+/** 页面私有查询条件：分页参数由 useListQuery 统一管理 */
+interface OperationLogQuery extends Omit<OperationLogPageQuery, 'pageNo' | 'pageSize'> {}
+
+const { list, total, loading, query, pageNo, pageSize, search, reset,
+        handleSizeChange, handlePageChange } =
+  useListQuery<OperationLogVO, OperationLogQuery>({
+    initialQuery: () => ({
+      userId: undefined,
+      username: undefined,
+      module: undefined,
+      operationStatus: undefined,
+      startTime: undefined,
+      endTime: undefined,
+    }),
+    fetcher: (params) => getOperationLogPageApi(params),
+    // 日期区间是页面私有语义，取数前映射为后端的 startTime/endTime
+    beforeFetch: (q) => {
+      q.startTime = timeRange.value?.[0]
+      q.endTime = timeRange.value?.[1]
+    },
+    onError: (error) => logAsyncError('加载操作日志失败', error),
+  })
 
 const detailVisible = ref(false)
 const currentLog = ref<OperationLogVO | null>(null)
@@ -44,33 +59,10 @@ const cleanAll = ref(false)
 const cleanRetainDays = ref(90)
 const cleaning = ref(false)
 
-async function loadList() {
-  loading.value = true
-  try {
-    const page = await getOperationLogPageApi({
-      ...query,
-      startTime: timeRange.value?.[0],
-      endTime: timeRange.value?.[1],
-    })
-    list.value = page.records
-    total.value = Number(page.total)
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.pageNo = 1
-  loadList()
-}
-
+/** 重置：条件由 composable 归位，日期区间是页面私有状态需一并清空 */
 function handleReset() {
-  query.userId = undefined
-  query.username = undefined
-  query.module = undefined
-  query.operationStatus = undefined
   timeRange.value = null
-  handleSearch()
+  void reset()
 }
 
 function openDetail(row: OperationLogVO) {
@@ -135,7 +127,7 @@ async function handleClean() {
     const deleted = await cleanOperationLogApi(all ? undefined : before, all)
     ElMessage.success(`已清理 ${deleted} 条操作日志`)
     cleanVisible.value = false
-    handleSearch()
+    await search()
   } finally {
     cleaning.value = false
   }
@@ -166,107 +158,107 @@ async function loadUserOptions() {
 }
 
 onMounted(() => {
-  loadList()
-  loadUserOptions()
+  // 列表由 useListQuery 自动加载，这里只补用户下拉
+  void loadUserOptions()
 })
 </script>
 
 <template>
   <div class="log-page">
-    <el-card shadow="never">
-      <el-form :inline="true" class="log-page__filters">
-        <el-form-item v-if="canPickUser" label="用户">
-          <el-select v-model="query.userId" placeholder="全部用户" clearable filterable class="log-page__select">
-            <el-option v-for="u in userOptions" :key="u.id" :label="`${u.realName}（${u.username}）`" :value="u.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="操作账号">
-          <el-input
-            v-model="query.username"
-            placeholder="支持模糊匹配"
-            clearable
-            class="log-page__input"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="模块">
-          <el-input
-            v-model="query.module"
-            placeholder="如 公告管理"
-            clearable
-            class="log-page__input"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.operationStatus" placeholder="全部" clearable class="log-page__select">
-            <el-option label="成功" :value="1" />
-            <el-option label="失败" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="操作时间">
-          <el-date-picker
-            v-model="timeRange"
-            type="datetimerange"
-            value-format="YYYY-MM-DD HH:mm:ss"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-            class="log-page__range"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
+    <ListPage
+      :data="list"
+      :total="total"
+      :loading="loading"
+      :page-no="pageNo"
+      :page-size="pageSize"
+      :page-sizes="[10, 20, 50, 100]"
+      pagination-layout="total, sizes, prev, pager, next"
+      @size-change="handleSizeChange"
+      @current-change="handlePageChange"
+    >
+      <template #filters>
+        <el-form :inline="true" class="log-page__filters">
+          <el-form-item v-if="canPickUser" label="用户">
+            <el-select v-model="query.userId" placeholder="全部用户" clearable filterable class="log-page__select">
+              <el-option v-for="u in userOptions" :key="u.id" :label="`${u.realName}（${u.username}）`" :value="u.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="操作账号">
+            <el-input
+              v-model="query.username"
+              placeholder="支持模糊匹配"
+              clearable
+              class="log-page__input"
+              @keyup.enter="search"
+            />
+          </el-form-item>
+          <el-form-item label="模块">
+            <el-input
+              v-model="query.module"
+              placeholder="如 公告管理"
+              clearable
+              class="log-page__input"
+              @keyup.enter="search"
+            />
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="query.operationStatus" placeholder="全部" clearable class="log-page__select">
+              <el-option label="成功" :value="1" />
+              <el-option label="失败" :value="0" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="操作时间">
+            <el-date-picker
+              v-model="timeRange"
+              type="datetimerange"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+              class="log-page__range"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="search">查询</el-button>
+            <el-button @click="handleReset">重置</el-button>
+          </el-form-item>
+        </el-form>
 
-      <div class="log-page__toolbar">
-        <el-button v-permission="'system:operation-log:export'" :loading="exporting" @click="handleExport">
-          导出 Excel
-        </el-button>
-        <el-button v-permission="'system:operation-log:clean'" type="danger" plain @click="openCleanDialog">
-          清理日志
-        </el-button>
-      </div>
+        <!-- 工具栏保持在筛选区下方独立一行（与改造前视觉一致） -->
+        <div class="log-page__toolbar">
+          <el-button v-permission="'system:operation-log:export'" :loading="exporting" @click="handleExport">
+            导出 Excel
+          </el-button>
+          <el-button v-permission="'system:operation-log:clean'" type="danger" plain @click="openCleanDialog">
+            清理日志
+          </el-button>
+        </div>
+      </template>
 
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="操作账号" min-width="110" />
-        <el-table-column prop="module" label="模块" width="120" />
-        <el-table-column prop="operation" label="操作描述" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="method" label="请求方法" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="ipAddress" label="IP 地址" min-width="130" />
-        <el-table-column label="耗时" width="90">
-          <template #default="{ row }">
-            {{ row.costTime === null || row.costTime === undefined ? '-' : `${row.costTime} ms` }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.operationStatus === 1 ? 'success' : 'danger'" size="small">
-              {{ row.operationStatus === 1 ? '成功' : '失败' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createTime" label="操作时间" width="170" />
-        <el-table-column label="操作" width="90" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openDetail(row)">查看</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <el-pagination
-        v-model:current-page="query.pageNo"
-        v-model:page-size="query.pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        class="log-page__pagination"
-        @current-change="loadList"
-        @size-change="handleSearch"
-      />
-    </el-card>
+      <el-table-column prop="id" label="ID" width="80" />
+      <el-table-column prop="username" label="操作账号" min-width="110" />
+      <el-table-column prop="module" label="模块" width="120" />
+      <el-table-column prop="operation" label="操作描述" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="method" label="请求方法" min-width="220" show-overflow-tooltip />
+      <el-table-column prop="ipAddress" label="IP 地址" min-width="130" />
+      <el-table-column label="耗时" width="90">
+        <template #default="{ row }">
+          {{ row.costTime === null || row.costTime === undefined ? '-' : `${row.costTime} ms` }}
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.operationStatus === 1 ? 'success' : 'danger'" size="small">
+            {{ row.operationStatus === 1 ? '成功' : '失败' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="createTime" label="操作时间" width="170" />
+      <el-table-column label="操作" width="90" fixed="right">
+        <template #default="{ row }">
+          <el-button icon-only link type="primary" size="small" @click="openDetail(row)">查看</el-button>
+        </template>
+      </el-table-column>
+    </ListPage>
 
     <el-drawer v-model="detailVisible" title="操作日志详情" size="620px">
       <el-descriptions v-if="currentLog" :column="1" border>
@@ -293,7 +285,7 @@ onMounted(() => {
       </el-descriptions>
     </el-drawer>
 
-    <el-dialog v-model="cleanVisible" title="清理操作日志" width="460px">
+    <ResponsiveDialog v-model="cleanVisible" title="清理操作日志" width="460px">
       <el-alert
         type="warning"
         :closable="false"
@@ -322,7 +314,7 @@ onMounted(() => {
         <el-button @click="cleanVisible = false">取消</el-button>
         <el-button type="danger" :loading="cleaning" @click="handleClean">确定清理</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
@@ -350,11 +342,6 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 8px;
   margin-bottom: 12px;
-}
-
-.log-page__pagination {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .log-page__json {
