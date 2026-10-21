@@ -190,6 +190,18 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public List<UserVO> listCandidates() {
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        // 只返回启用态用户，作为审批人 / 接收人候选。
+        // 不套 @DataScope：原 getUserPageApi 受 system:user:* 限制会让非 HR 角色在
+        // 转办 / 指定接收人时拿不到候选列表（403）。候选选择由页面级权限管控即可。
+        wrapper.eq(User::getStatus, 1);
+        wrapper.orderByDesc(User::getId);
+        List<User> users = userMapper.selectList(wrapper);
+        return toUserVOs(users);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Long saveUser(UserSaveRequest request) {
         return request.getId() == null ? createUser(request) : updateUser(request);

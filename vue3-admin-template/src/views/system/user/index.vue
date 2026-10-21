@@ -20,6 +20,8 @@ import type {
   UserSaveRequest,
   UserVO,
 } from '@/api/types'
+import { useListQuery } from '@/composables/useListQuery'
+import ListPage from '@/components/list/ListPage.vue'
 
 /** 与后端 UserServiceImpl.DEFAULT_PASSWORD 保持一致：新增 / 重置密码共用同一初始密码 */
 const DEFAULT_PASSWORD = 'qwe@123456'
@@ -37,21 +39,23 @@ const DEFAULT_GENDER = 1
 /** 导入失败明细最多展示条数，超出部分只提示总数 */
 const MAX_ERROR_LIST = 20
 
-const loading = ref(false)
-const list = ref<UserVO[]>([])
-const total = ref(0)
-
 const deptTree = ref<DeptVO[]>([])
 const roleOptions = ref<RoleOptionVO[]>([])
 
-const query = reactive<UserPageQuery>({
-  pageNo: 1,
-  pageSize: 10,
-  deptId: undefined,
-  roleId: undefined,
-  status: undefined,
-  keyword: undefined,
-})
+/** 页面私有查询条件：分页参数由 useListQuery 统一管理 */
+interface UserQuery extends Omit<UserPageQuery, 'pageNo' | 'pageSize'> {}
+
+const { list, total, loading, query, pageNo, pageSize, refresh, search, reset,
+        handleSizeChange, handlePageChange } =
+  useListQuery<UserVO, UserQuery>({
+    initialQuery: () => ({
+      deptId: undefined,
+      roleId: undefined,
+      status: undefined,
+      keyword: undefined,
+    }),
+    fetcher: (params) => getUserPageApi(params),
+  })
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -153,36 +157,6 @@ const formDeptOptions = computed<DeptVO[]>(() => {
   return retiredDept.value ? [retiredDept.value, ...enabled] : enabled
 })
 
-async function loadPage() {
-  loading.value = true
-  try {
-    const res = await getUserPageApi(query)
-    list.value = res.records
-    total.value = res.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSizeChange(size: number) {
-  query.pageSize = size
-  void loadPage()
-}
-
-function handlePageChange(page: number) {
-  query.pageNo = page
-  void loadPage()
-}
-
-function resetQuery() {
-  query.deptId = undefined
-  query.roleId = undefined
-  query.status = undefined
-  query.keyword = undefined
-  query.pageNo = 1
-  void loadPage()
-}
-
 /** 今天（YYYY-MM-DD）：新增员工的入职日期默认取表单打开当日，后端亦有兜底 */
 function today(): string {
   const now = new Date()
@@ -273,7 +247,7 @@ async function submit() {
     await saveUserApi(payload)
     ElMessage.success(isEdit.value ? '修改成功' : '新增成功')
     dialogVisible.value = false
-    await loadPage()
+    await refresh()
   } finally {
     submitting.value = false
   }
@@ -291,13 +265,13 @@ async function remove(row: UserVO) {
   }
   await deleteUserApi(row.id)
   ElMessage.success('删除成功')
-  await loadPage()
+  await refresh()
 }
 
 async function toggleStatus(row: UserVO, enabled: boolean) {
   await updateUserStatusApi(row.id, enabled ? 1 : 0)
   ElMessage.success(enabled ? '已启用' : '已禁用')
-  await loadPage()
+  await refresh()
 }
 
 async function resetPwd(row: UserVO) {
@@ -355,7 +329,7 @@ async function submitImport() {
     if (result.imported) {
       ElMessage.success(result.message || '导入成功')
       importVisible.value = false
-      await loadPage()
+      await refresh()
       return
     }
     // 整批未通过：文件本身没错，把逐行原因留在对话框里供管理员对照修改
@@ -371,18 +345,9 @@ const shownImportErrors = computed(() =>
   (importResult.value?.errors ?? []).slice(0, MAX_ERROR_LIST),
 )
 
-function statusLabel(status: number) {
-  return STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status
-}
-
-function statusTag(status: number) {
-  if (status === 1) return 'success'
-  if (status === 2) return 'warning'
-  return 'info'
-}
-
 onMounted(async () => {
-  await Promise.all([loadPage(), loadDeptAndRoles()])
+  // 列表由 useListQuery 自动加载，这里只补部门树与角色下拉
+  await loadDeptAndRoles()
 })
 
 async function loadDeptAndRoles() {
@@ -394,102 +359,102 @@ async function loadDeptAndRoles() {
 
 <template>
   <div class="user">
-    <el-card shadow="never">
-      <el-form :inline="true" @submit.prevent="loadPage">
-        <el-form-item label="部门">
-          <el-tree-select
-            v-model="query.deptId"
-            :data="deptTree"
-            :props="{ label: 'deptName', children: 'children' }"
-            node-key="id"
-            check-strictly
-            :render-after-expand="false"
-            placeholder="全部部门"
-            clearable
-            style="width: 180px"
-          />
-        </el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="query.roleId" placeholder="全部" clearable style="width: 150px">
-            <el-option v-for="r in roleOptions" :key="r.id" :label="r.roleName" :value="r.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width: 120px">
-            <el-option v-for="o in STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="关键字">
-          <el-input v-model="query.keyword" placeholder="姓名/账号/工号/手机" clearable style="width: 200px" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="loadPage">查询</el-button>
-          <el-button @click="resetQuery">重置</el-button>
-        </el-form-item>
-      </el-form>
-
-      <div class="user__toolbar">
-        <el-button v-permission="'system:user:add'" type="primary" @click="openCreate">
-          新增员工
-        </el-button>
-        <el-button v-permission="'system:user:import'" @click="openImport">批量导入</el-button>
-      </div>
-
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column prop="username" label="登录账号" width="140" />
-        <el-table-column prop="realName" label="姓名" width="110" />
-        <el-table-column prop="deptName" label="部门" min-width="130" />
-        <el-table-column prop="position" label="岗位" width="120" />
-        <el-table-column prop="mobile" label="手机号" width="140" />
-        <el-table-column label="角色" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.roleNames || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.status === 1"
-              @change="(val: boolean) => toggleStatus(row, val)"
+    <ListPage
+      :data="list"
+      :total="total"
+      :loading="loading"
+      :page-no="pageNo"
+      :page-size="pageSize"
+      :page-sizes="[10, 20, 50, 100]"
+      pagination-layout="total, sizes, prev, pager, next, jumper"
+      empty-text="暂无员工数据"
+      @size-change="handleSizeChange"
+      @current-change="handlePageChange"
+    >
+      <template #filters>
+        <el-form :inline="true" @submit.prevent="search">
+          <el-form-item label="部门">
+            <el-tree-select
+              v-model="query.deptId"
+              :data="deptTree"
+              :props="{ label: 'deptName', children: 'children' }"
+              node-key="id"
+              check-strictly
+              :render-after-expand="false"
+              placeholder="全部部门"
+              clearable
+              style="width: 180px"
             />
-          </template>
-        </el-table-column>
-        <el-table-column label="状态值" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
-          <template #default="{ row }">
-            <el-button v-permission="'system:user:edit'" link type="primary" @click="openEdit(row)">
-              编辑
-            </el-button>
-            <el-button v-permission="'system:user:resetPwd'" link type="warning" @click="resetPwd(row)">
-              重置密码
-            </el-button>
-            <el-button v-permission="'system:user:delete'" link type="danger" @click="remove(row)">
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="暂无员工数据" />
+          </el-form-item>
+          <el-form-item label="角色">
+            <el-select v-model="query.roleId" placeholder="全部" clearable style="width: 150px">
+              <el-option v-for="r in roleOptions" :key="r.id" :label="r.roleName" :value="r.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="query.status" placeholder="全部" clearable style="width: 120px">
+              <el-option v-for="o in STATUS_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="关键字">
+            <el-input v-model="query.keyword" placeholder="姓名/账号/工号/手机" clearable style="width: 200px" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="search">查询</el-button>
+            <el-button @click="reset">重置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <!-- 工具栏保持在筛选区下方独立一行（与改造前视觉一致） -->
+        <div class="user__toolbar">
+          <el-button v-permission="'system:user:add'" type="primary" @click="openCreate">
+            新增员工
+          </el-button>
+          <el-button v-permission="'system:user:import'" @click="openImport">批量导入</el-button>
+        </div>
+      </template>
+
+      <!-- 列宽合计超出容器时 el-table 会自动出现底部横向滚动条 -->
+      <el-table-column prop="username" label="登录账号" width="120" />
+      <el-table-column prop="workNumber" label="员工编号" width="120" />
+      <el-table-column prop="realName" label="姓名" width="100" />
+      <el-table-column label="性别" width="70">
+        <template #default="{ row }">{{ row.gender === 2 ? '女' : '男' }}</template>
+      </el-table-column>
+      <el-table-column prop="deptName" label="所属部门" min-width="130" show-overflow-tooltip />
+      <el-table-column prop="position" label="职务" width="120" show-overflow-tooltip />
+      <el-table-column prop="mobile" label="手机号" width="130" />
+      <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.email || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="角色范围" min-width="160" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.roleNames || '-' }}</template>
+      </el-table-column>
+      <!-- 状态与操作固定在右侧：横向滚动时不至于被滚出视野 -->
+      <el-table-column label="人员状态" width="100" fixed="right">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.status === 1"
+            @change="(val: boolean) => toggleStatus(row, val)"
+          />
         </template>
-      </el-table>
+      </el-table-column>
+      <el-table-column label="操作" width="150" fixed="right">
+        <template #default="{ row }">
+          <el-button icon-only v-permission="'system:user:edit'" link type="primary" @click="openEdit(row)">
+            编辑
+          </el-button>
+          <el-button icon-only v-permission="'system:user:resetPwd'" link type="warning" @click="resetPwd(row)">
+            重置密码
+          </el-button>
+          <el-button icon-only v-permission="'system:user:delete'" link type="danger" @click="remove(row)">
+            删除
+          </el-button>
+        </template>
+      </el-table-column>
+    </ListPage>
 
-      <div class="user__pager">
-        <el-pagination
-          v-model:current-page="query.pageNo"
-          v-model:page-size="query.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          @size-change="handleSizeChange"
-          @current-change="handlePageChange"
-        />
-      </div>
-    </el-card>
-
-    <el-dialog
+    <ResponsiveDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑员工' : '新增员工'"
       width="600px"
@@ -597,9 +562,9 @@ async function loadDeptAndRoles() {
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">确定</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <el-dialog v-model="importVisible" title="批量导入员工" width="680px" :close-on-click-modal="false">
+    <ResponsiveDialog v-model="importVisible" title="批量导入员工" width="680px" :close-on-click-modal="false">
       <el-alert
         type="info"
         :closable="false"
@@ -641,21 +606,16 @@ async function loadDeptAndRoles() {
 
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
-        <el-button @click="downloadUserImportTemplateApi">下载模板</el-button>
+        <el-button @click="downloadUserImportTemplateApi()">下载模板</el-button>
         <el-button type="primary" :loading="importing" @click="submitImport">开始导入</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
 <style scoped>
 .user__toolbar {
   margin-bottom: 16px;
-}
-.user__pager {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
 }
 .user__upload-tip {
   margin-top: 8px;

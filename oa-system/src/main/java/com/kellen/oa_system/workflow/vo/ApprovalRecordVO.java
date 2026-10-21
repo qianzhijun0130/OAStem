@@ -17,4 +17,10 @@ public class ApprovalRecordVO {
     private String actionName;
     private String opinion;
     private String createTime;
+
+    /** 单据发起人所属部门（不是处理人的部门），查不到为 null */
+    private String deptName;
+
+    /** 单据发起人所属公司，查不到为 null */
+    private String companyName;
 }

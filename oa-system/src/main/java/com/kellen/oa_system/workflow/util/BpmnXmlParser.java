@@ -39,7 +39,7 @@ public final class BpmnXmlParser {
 
     /** BPMN 2.0 模型命名空间（{@link BpmnXmlNormalizer} 复用同一常量） */
     static final String NS_BPMN = "http://www.omg.org/spec/BPMN/20100524/MODEL";
-    private static final String NS_FLOWABLE = "http://flowable.org/bpmn";
+    static final String NS_FLOWABLE = "http://flowable.org/bpmn";
     /** 本项目自定义扩展命名空间 */
     public static final String NS_OA = "http://oastem.com/bpmn";
 
@@ -48,8 +48,11 @@ public final class BpmnXmlParser {
     public static final int ASSIGNEE_USER = 1;
     public static final int ASSIGNEE_ROLE = 2;
     public static final int ASSIGNEE_LEADER = 3;
+    /** 指定部门主管：取某个固定部门的主管（部门 id 写在 value 上），与「发起人部门主管」区分 */
+    public static final int ASSIGNEE_DEPT_LEADER = 5;
 
     private static final String ROLE_PREFIX = "role:";
+    private static final String DEPT_PREFIX = "dept:";
     private static final List<String> LEADER_TOKENS =
             List.of("leader", "dept_leader", "deptleader", "department_leader");
 
@@ -154,6 +157,7 @@ public final class BpmnXmlParser {
             case "user", "people", "assignee" -> ASSIGNEE_USER;
             case "role", "group" -> ASSIGNEE_ROLE;
             case "leader" -> ASSIGNEE_LEADER;
+            case "deptleader" -> ASSIGNEE_DEPT_LEADER;
             default -> ASSIGNEE_UNSET;
         };
     }
@@ -164,6 +168,15 @@ public final class BpmnXmlParser {
      */
     private static AssigneeRule parseCandidateGroups(String groups) {
         List<String> tokens = split(groups);
+        // 指定部门主管：dept:X（X 为部门 id），取该部门的主管
+        List<String> deptIds = tokens.stream()
+                .filter(t -> t.toLowerCase().startsWith(DEPT_PREFIX))
+                .map(t -> t.substring(DEPT_PREFIX.length()).trim())
+                .filter(s -> !s.isEmpty())
+                .toList();
+        if (!deptIds.isEmpty()) {
+            return new AssigneeRule(ASSIGNEE_DEPT_LEADER, deptIds.get(0));
+        }
         boolean isLeader = tokens.stream().anyMatch(t -> LEADER_TOKENS.contains(t.toLowerCase()));
         if (isLeader) {
             return new AssigneeRule(ASSIGNEE_LEADER, "");

@@ -5,6 +5,7 @@ import type {
   FlowDefinitionSaveRequest,
   FlowDefinitionPageQuery,
   FlowDefinitionImportRequest,
+  FlowVariableVO,
   PageResult,
 } from './types'
 
@@ -35,6 +36,16 @@ export function getFlowDetailApi(id: number) {
 /** 读取模板的 BPMN XML（设计器回显） */
 export function getFlowBpmnApi(id: number) {
   return request<string>({ url: `/workflow/flow-definition/${id}/bpmn`, method: 'get' })
+}
+
+/**
+ * 分支条件可用变量清单（表单字段 + 系统内置变量）。
+ *
+ * 后端保存时会用同一份清单校验变量名合法性，因此下拉里选不到、
+ * 手工填的变量都会被拒——前后端口径一致，不会出现"能配但保存失败"的割裂。
+ */
+export function getFlowVariablesApi(id: number) {
+  return request<FlowVariableVO>({ url: `/workflow/flow-definition/${id}/variables`, method: 'get' })
 }
 
 /** 新增或更新流程模板：无 id 为新增；传 bpmnXml 时会重新部署 */

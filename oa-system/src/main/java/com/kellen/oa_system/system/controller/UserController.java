@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -45,6 +46,18 @@ public class UserController {
     @PreAuthorize("hasAuthority('system:user:query')")
     public Result<PageResult<UserVO>> page(UserPageQuery query) {
         return Result.success(userService.pageUsers(query));
+    }
+
+    /**
+     * 候选用户列表（启用态），供审批转办 / 审批人 / 通知接收人选择。
+     *
+     * <p>刻意不要求 {@code system:user:query}：该权限仅 HR+超管持有，会导致非 HR 角色
+     * 在转办 / 指定接收人时拿不到候选列表（403）。此处仅要求已登录，页面级权限已做管控。</p>
+     */
+    @GetMapping("/candidates")
+    @PreAuthorize("isAuthenticated()")
+    public Result<List<UserVO>> candidates() {
+        return Result.success(userService.listCandidates());
     }
 
     /**

@@ -1,9 +1,25 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import Navbar from './components/Navbar.vue'
 import Sidebar from './components/Sidebar.vue'
 
 const collapsed = ref(false)
+
+// 响应式骨架：窄屏（<768px，如平板/手机）自动收起侧边栏，避免挤占内容区；
+// 宽屏恢复展开。手动点击汉堡键仍可临时切换，下次 resize 会按视口重新校准。
+function syncCollapseByWidth() {
+  collapsed.value = window.innerWidth < 768
+}
+
+let resizeHandler: (() => void) | null = null
+onMounted(() => {
+  syncCollapseByWidth()
+  resizeHandler = () => syncCollapseByWidth()
+  window.addEventListener('resize', resizeHandler)
+})
+onBeforeUnmount(() => {
+  if (resizeHandler) window.removeEventListener('resize', resizeHandler)
+})
 </script>
 
 <template>

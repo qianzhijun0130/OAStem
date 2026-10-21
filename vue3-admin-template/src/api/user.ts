@@ -16,6 +16,16 @@ export function getUserPageApi(params: UserPageQuery) {
   return request<PageResult<UserVO>>({ url: '/system/user/page', method: 'get', params })
 }
 
+/**
+ * 候选用户列表（启用态），供审批转办 / 审批人 / 通知接收人选择。
+ *
+ * <p>不依赖 system:user:*（该权限仅 HR+超管持有），避免非 HR 角色在转办 / 指定接收人时 403。
+ * 返回数组而非分页对象——候选清单不需要分页，也避开硬编码 pageSize 截断。</p>
+ */
+export function getUserCandidatesApi() {
+  return request<UserVO[]>({ url: '/system/user/candidates', method: 'get' })
+}
+
 /** 新增或更新员工：无 id 为新增 */
 export function saveUserApi(data: UserSaveRequest) {
   return request<number>({ url: '/system/user', method: 'post', data })

@@ -15,4 +15,10 @@ public class ApprovalTodoVO {
     private String applicantName;
     private String currentNode;
     private String createTime;
+
+    /** 申请人所属部门（oa_department.dept_name），查不到为 null */
+    private String deptName;
+
+    /** 申请人所属公司（部门 company_id → oa_company.company_name），查不到为 null */
+    private String companyName;
 }

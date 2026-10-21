@@ -4,6 +4,10 @@ import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.exceptions.PersistenceException;
+import org.flowable.common.engine.api.FlowableException;
+import org.flowable.common.engine.api.FlowableObjectNotFoundException;
+import org.flowable.common.engine.api.FlowableOptimisticLockingException;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
@@ -15,6 +19,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -90,6 +98,20 @@ public class FlowableEngineService {
         taskService.deleteCandidateUser(taskId, String.valueOf(userId));
     }
 
+    /**
+     * 摘除任务上的全部候选人（挂起时使用）。
+     *
+     * <p><b>为什么不能只靠 suspend 引擎实例</b>：Flowable 的 {@code taskCandidateUser} 查询
+     * <b>不会</b>排除挂起实例下的任务（TaskQuery 只提供按时间/人查「挂起」的能力，没有 active 布尔过滤），
+     * 仅 suspend 的话审批人待办里仍会看到这条单据。摘掉候选人后待办自然消失，
+     * 恢复时再按 node_config 重新解析即可。</p>
+     */
+    public void clearCandidateUsers(String taskId) {
+        taskService.getIdentityLinksForTask(taskId).stream()
+                .filter(link -> link.getUserId() != null)
+                .forEach(link -> taskService.deleteCandidateUser(taskId, link.getUserId()));
+    }
+
     public Task getTask(String taskId) {
         return taskService.createTaskQuery().taskId(taskId).singleResult();
     }
@@ -99,8 +121,53 @@ public class FlowableEngineService {
                 .processInstanceId(procInstId).count() > 0;
     }
 
+    /**
+     * 删除流程实例（驳回 / 撤销时调用）。
+     *
+     * <p>并发场景：两人同时处理同一申请（例如并发驳回），胜者已结束并删除实例，
+     * 败者再删会抛 {@link FlowableObjectNotFoundException}。这属正常竞争结果而非故障，
+     * 视为幂等忽略（流程已不在，删除本就是「让它不在」）。</p>
+     *
+     * <p>其余 Flowable / 持久层异常交给 {@link #asConcurrencyConflict} 翻译（D7：
+     * 并发审批撞 MySQL 死锁不应变成 5000）。</p>
+     */
     public void deleteProcessInstance(String procInstId, String reason) {
-        runtimeService.deleteProcessInstance(procInstId, reason);
+        try {
+            runtimeService.deleteProcessInstance(procInstId, reason);
+        } catch (FlowableObjectNotFoundException e) {
+            log.warn("删除流程实例时实例已不存在（可能被并发操作提前结束）: procInstId={}", procInstId);
+        } catch (FlowableException | PersistenceException e) {
+            throw asConcurrencyConflict(e);
+        }
+    }
+
+    /**
+     * 挂起流程实例（阶段四·挂起/恢复）。
+     *
+     * <p>挂起后该实例下所有任务都不再被 {@code taskCandidateUser} 查到——表现为「待办里暂时消失」，
+     * 这正是业务想要的「先放一放、不占用审批人的待办」。恢复后任务原样回到待办。</p>
+     *
+     * <p>实例已不存在时按 3101 处理；其余引擎异常交给并发冲突翻译（与 complete 同口径）。</p>
+     */
+    public void suspendProcessInstance(String procInstId) {
+        try {
+            runtimeService.suspendProcessInstanceById(procInstId);
+        } catch (FlowableObjectNotFoundException e) {
+            throw new BizException(ErrorCode.INSTANCE_NOT_FOUND, "流程实例不存在或已结束");
+        } catch (FlowableException | PersistenceException e) {
+            throw asConcurrencyConflict(e);
+        }
+    }
+
+    /** 恢复流程实例：原任务重新回到候选人待办 */
+    public void activateProcessInstance(String procInstId) {
+        try {
+            runtimeService.activateProcessInstanceById(procInstId);
+        } catch (FlowableObjectNotFoundException e) {
+            throw new BizException(ErrorCode.INSTANCE_NOT_FOUND, "流程实例不存在或已结束");
+        } catch (FlowableException | PersistenceException e) {
+            throw asConcurrencyConflict(e);
+        }
     }
 
     /** 启动流程实例，返回流程实例 id（businessKey 用审批单 id） */
@@ -109,9 +176,107 @@ public class FlowableEngineService {
         return pi.getId();
     }
 
-    /** 完成用户任务（携带变量，如审批结论 outcome） */
+    /**
+     * 完成用户任务（携带变量，如审批结论 outcome）。
+     *
+     * <p>两人同时审批同一任务时，败者的事务可能在 commit 阶段撞上 MySQL 死锁
+     * （Flowable 更新 execution 行时加锁顺序交错），或任务已被胜者删除后抛
+     * {@link FlowableObjectNotFoundException}。这些都不是系统故障，而是「单据已被他人处理」
+     * 的正常竞争结果，应当转成业务码而非 5000（D7 缺陷）。</p>
+     */
     public void complete(String taskId, Map<String, Object> vars) {
-        taskService.complete(taskId, vars);
+        try {
+            taskService.complete(taskId, vars);
+        } catch (FlowableException | PersistenceException e) {
+            throw asConcurrencyConflict(e);
+        }
+    }
+
+    /**
+     * 把 Flowable / 持久层在并发审批路径上产生的异常翻译成可读业务异常。
+     *
+     * <p>识别三类竞争结果：
+     * <ul>
+     *   <li>任务已不存在（{@link FlowableObjectNotFoundException}）→ 3103 任务不存在；</li>
+     *   <li>死锁 / 乐观锁（消息含 deadlock / lock）→ 3102 审批单已结束，无法操作；</li>
+     *   <li>其余持久层 / 引擎异常 → 5000 系统错误（真实故障，不掩盖）。</li>
+     * </ul>
+     * 包装异常由 Spring 包了一层，故递归下钻找第一个 Flowable / 持久层根因再判断。</p>
+     */
+    private BizException asConcurrencyConflict(Exception e) {
+        Throwable root = e;
+        Throwable flowableOrPersistence = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+            if (root instanceof FlowableException || root instanceof PersistenceException) {
+                flowableOrPersistence = root;
+            }
+        }
+        String msg = flowableOrPersistence.getMessage();
+        msg = msg != null ? msg.toLowerCase() : "";
+        if (flowableOrPersistence instanceof FlowableObjectNotFoundException) {
+            return new BizException(ErrorCode.TASK_NOT_FOUND, "审批任务已被处理，请刷新列表");
+        }
+        if (flowableOrPersistence instanceof FlowableOptimisticLockingException
+                || msg.contains("deadlock") || msg.contains("lock wait")) {
+            return new BizException(ErrorCode.INSTANCE_ALREADY_DONE, "审批单已被他人处理，请刷新列表");
+        }
+        return new BizException(ErrorCode.SYSTEM_ERROR, "流程引擎调用失败");
+    }
+
+    /**
+     * 更新运行中流程实例的变量。
+     *
+     * <p>用于「节点填了表单的可编辑字段」的场景：{@code form_data} 更新后，
+     * 同步写回流程变量，保证后续节点的条件表达式读到的是最新值
+     * （例如销假节点填了实际返岗天数，后面按该值分支）。</p>
+     *
+     * <p>实例已结束时 Flowable 会抛异常，此处吞掉并记日志 ——
+     * 变量同步只是锦上添花，不该让审批本身失败。</p>
+     */
+    public void setVariables(String procInstId, Map<String, Object> vars) {
+        if (procInstId == null || vars == null || vars.isEmpty()) {
+            return;
+        }
+        try {
+            runtimeService.setVariables(procInstId, vars);
+        } catch (Exception e) {
+            log.warn("同步流程变量失败（不影响审批结果）: procInstId={}", procInstId, e);
+        }
+    }
+
+    /**
+     * 取某流程实例当前的全部流程变量快照。
+     *
+     * <p>用于「分支命中日志」：网关路由时需要把当时参与判断的变量值一并留存，
+     * 否则事后无法解释「为什么走了这条分支」。</p>
+     *
+     * <p>实例已结束或读取失败时返回空表 —— 命中日志是追溯辅助，
+     * 不该因为快照取不到就让审批动作失败。</p>
+     */
+    public Map<String, Object> getVariables(String procInstId) {
+        if (procInstId == null) {
+            return Map.of();
+        }
+        try {
+            return new HashMap<>(runtimeService.getVariables(procInstId));
+        } catch (Exception e) {
+            log.warn("读取流程变量快照失败（不影响审批结果）: procInstId={}", procInstId, e);
+            return Map.of();
+        }
+    }
+
+    /**
+     * 设置任务处理截止时间（阶段四·超时）。
+     *
+     * <p>写在 Flowable 的 {@code DUE_} 上，引擎侧可用 {@code taskDueBefore} 检索逾期任务；
+     * 业务侧的「是否逾期」以 {@code oa_approval_instance.due_time} 为准（列表免 N+1）。</p>
+     */
+    public void setTaskDueDate(String taskId, LocalDateTime dueTime) {
+        if (taskId == null || dueTime == null) {
+            return;
+        }
+        taskService.setDueDate(taskId, Date.from(dueTime.atZone(ZoneId.systemDefault()).toInstant()));
     }
 
     /** 某流程实例下的全部当前任务（一般单条，并行网关会多条） */

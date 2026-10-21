@@ -36,6 +36,9 @@ public interface UserService {
     /** 分页查询员工列表（含部门名与角色名） */
     com.kellen.oa_system.common.PageResult<UserVO> pageUsers(UserPageQuery query);
 
+    /** 候选用户列表（启用态），供审批转办 / 审批人 / 通知接收人选择，不依赖 system:user:* */
+    List<UserVO> listCandidates();
+
     /** 新增或修改员工，返回用户ID（id 为空为新增） */
     Long saveUser(UserSaveRequest request);
 
