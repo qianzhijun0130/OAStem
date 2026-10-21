@@ -89,4 +89,18 @@ public class JwtUtil {
     public Long getExpirationMillis() {
         return expiration;
     }
+
+    /**
+     * 令牌剩余有效秒数，用于给「登出黑名单」设置 TTL——黑名单只需要活到令牌自然过期为止。
+     *
+     * @return 剩余秒数；已过期或无法解析返回 0
+     */
+    public long getRemainingSeconds(Claims claims) {
+        Date expireAt = claims == null ? null : claims.getExpiration();
+        if (expireAt == null) {
+            return 0L;
+        }
+        long remain = expireAt.getTime() - System.currentTimeMillis();
+        return remain <= 0 ? 0L : remain / 1000;
+    }
 }

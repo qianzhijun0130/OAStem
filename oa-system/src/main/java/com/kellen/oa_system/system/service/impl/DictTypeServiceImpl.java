@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.common.redis.RedisGuard;
 import com.kellen.oa_system.system.dto.DictTypePageQuery;
 import com.kellen.oa_system.system.dto.DictTypeSaveRequest;
 import com.kellen.oa_system.system.entity.DictData;
@@ -33,6 +34,7 @@ public class DictTypeServiceImpl implements DictTypeService {
 
     private final DictTypeMapper dictTypeMapper;
     private final DictDataMapper dictDataMapper;
+    private final RedisGuard redisGuard;
 
     @Override
     public PageResult<DictTypeVO> pageTypes(DictTypePageQuery query) {
@@ -75,6 +77,8 @@ public class DictTypeServiceImpl implements DictTypeService {
             applyRequest(entity, request);
             entity.setStatus(request.getStatus() == null ? STATUS_ENABLED : request.getStatus());
             dictTypeMapper.insert(entity);
+            // 类型不存在时 listByType 会把「空列表」也缓存，所以新建类型同样要清
+            evictCache(entity.getDictType());
             return entity.getId();
         }
 
@@ -93,6 +97,8 @@ public class DictTypeServiceImpl implements DictTypeService {
             update.setStatus(request.getStatus());
         }
         dictTypeMapper.updateById(update);
+        // 改名/改排序/改状态都会影响下拉数据
+        evictCache(existing.getDictType());
         return request.getId();
     }
 
@@ -108,17 +114,27 @@ public class DictTypeServiceImpl implements DictTypeService {
         // 唯一性已由数据库保证：uk_dict_type 改为 (dict_type, active_flag)，
         // 已删行 active_flag=NULL，原编码自动释放，应用层无需改写业务值
         dictTypeMapper.deleteById(id);
+        evictCache(existing.getDictType());
         log.info("字典类型已删除 id={}", id);
     }
 
     @Override
     public void updateStatus(Long id, Integer status) {
-        requireType(id);
+        DictType existing = requireType(id);
         // 同上：只提交 id + status，让 update_time 走自动填充（与 UserServiceImpl#updateUserStatus 同口径）
         DictType update = new DictType();
         update.setId(id);
         update.setStatus(status);
         dictTypeMapper.updateById(update);
+        // 停用/启用类型会让整组字典项「可用 → 不可用」，必须立刻失效缓存
+        evictCache(existing.getDictType());
+    }
+
+    /** 失效某个字典类型的缓存，与 DictDataServiceImpl 共用 key 前缀 */
+    private void evictCache(String dictType) {
+        if (StringUtils.hasText(dictType)) {
+            redisGuard.remove(DictDataServiceImpl.CACHE_PREFIX + dictType);
+        }
     }
 
     // ---------- 内部方法 ----------

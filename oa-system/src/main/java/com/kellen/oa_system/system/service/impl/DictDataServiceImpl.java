@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.common.redis.RedisGuard;
 import com.kellen.oa_system.system.dto.DictDataPageQuery;
 import com.kellen.oa_system.system.dto.DictDataSaveRequest;
 import com.kellen.oa_system.system.entity.DictData;
@@ -15,10 +16,14 @@ import com.kellen.oa_system.system.service.DictDataService;
 import com.kellen.oa_system.system.vo.DictDataVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -33,8 +38,16 @@ public class DictDataServiceImpl implements DictDataService {
     private static final int DEFAULT_YES = 1;
     private static final int DEFAULT_NO = 0;
 
+    /** 缓存 key 前缀，与 DictTypeServiceImpl 共用同一前缀做整体失效 */
+    public static final String CACHE_PREFIX = "oastem:dict:items:";
+
     private final DictDataMapper dictDataMapper;
     private final DictTypeMapper dictTypeMapper;
+    private final RedisGuard redisGuard;
+    private final ObjectMapper objectMapper;
+
+    @Value("${redis.cache.dict-ttl-seconds:600}")
+    private long dictCacheTtlSeconds;
 
     @Override
     public PageResult<DictDataVO> pageData(DictDataPageQuery query) {
@@ -65,6 +78,28 @@ public class DictDataServiceImpl implements DictDataService {
         if (!StringUtils.hasText(dictType)) {
             throw new BizException(ErrorCode.BAD_REQUEST, "字典类型编码不能为空");
         }
+        // 字典是典型的「读多写极少」数据：前端每个下拉框每次打开都会调一次，
+        // 而增删改只发生在字典管理页，所以很适合缓存，写操作主动失效即可。
+        String cacheKey = CACHE_PREFIX + dictType;
+        List<DictDataVO> cached = redisGuard.read(cacheKey,
+                json -> objectMapper.readValue(json, new TypeReference<List<DictDataVO>>() {
+                }));
+        if (cached != null) {
+            return cached;
+        }
+        List<DictDataVO> result = loadByType(dictType);
+        try {
+            redisGuard.write(cacheKey, objectMapper.writeValueAsString(result),
+                    Duration.ofSeconds(dictCacheTtlSeconds));
+        } catch (RuntimeException e) {
+            // 序列化失败只影响缓存命中率，不能影响接口返回
+            log.warn("字典缓存写入失败, dictType={}", dictType, e);
+        }
+        return result;
+    }
+
+    /** 回源数据库：类型被停用则整组不可用，消费方下拉应取不到值 */
+    private List<DictDataVO> loadByType(String dictType) {
         // 类型被停用则整组不可用：消费方（公告类型/级别、流程分类）的下拉应取不到值，
         // 否则「停用类型」就是一个不影响业务的空动作。类型不存在时同样返回空数组。
         Long enabledType = dictTypeMapper.selectCount(new LambdaQueryWrapper<DictType>()
@@ -98,6 +133,7 @@ public class DictDataServiceImpl implements DictDataService {
             entity.setStatus(request.getStatus() == null ? STATUS_ENABLED : request.getStatus());
             entity.setIsDefault(asDefault ? DEFAULT_YES : DEFAULT_NO);
             dictDataMapper.insert(entity);
+            evictCache(request.getDictType());
             return entity.getId();
         }
 
@@ -112,26 +148,38 @@ public class DictDataServiceImpl implements DictDataService {
         }
         update.setIsDefault(asDefault ? DEFAULT_YES : DEFAULT_NO);
         dictDataMapper.updateById(update);
+        // 类型编码允许被改，旧类型与新类型的缓存都要失效
+        evictCache(existing.getDictType());
+        evictCache(request.getDictType());
         return existing.getId();
     }
 
     @Override
     public void deleteData(Long id) {
-        requireData(id);
+        DictData existing = requireData(id);
         dictDataMapper.deleteById(id);
+        evictCache(existing.getDictType());
     }
 
     @Override
     public void updateStatus(Long id, Integer status) {
-        requireData(id);
+        DictData existing = requireData(id);
         // 同上：只提交 id + status，让 update_time 走自动填充
         DictData update = new DictData();
         update.setId(id);
         update.setStatus(status);
         dictDataMapper.updateById(update);
+        evictCache(existing.getDictType());
     }
 
     // ---------- 内部方法 ----------
+
+    /** 失效某个字典类型的缓存；Redis 不可用时静默跳过（最坏情况是脏数据活到 TTL 过期） */
+    private void evictCache(String dictType) {
+        if (StringUtils.hasText(dictType)) {
+            redisGuard.remove(CACHE_PREFIX + dictType);
+        }
+    }
 
     private DictData requireData(Long id) {
         DictData entity = dictDataMapper.selectById(id);

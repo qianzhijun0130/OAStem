@@ -28,6 +28,8 @@ public enum ErrorCode {
     TOKEN_INVALID(1005, "令牌无效或已过期"),
     TOKEN_NOT_PROVIDED(1006, "缺少访问令牌"),
     PASSWORD_NOT_MATCH(1007, "原密码不正确"),
+    /** 连续登录失败触发的临时锁定（Redis 计数），与 USER_LOCKED 的「账号状态被管理员锁定」区分开 */
+    LOGIN_TOO_MANY_FAILURES(1008, "登录失败次数过多，账号已临时锁定，请稍后再试"),
     USERNAME_DUPLICATE(1108, "登录账号已存在"),
     WORK_NUMBER_DUPLICATE(1109, "工号已存在"),
     USER_CANNOT_OPERATE_SELF(1110, "不能删除或禁用当前登录账号"),
@@ -64,6 +66,17 @@ public enum ErrorCode {
     NOTICE_PUBLISHED_CANNOT_EDIT(2404, "已发布的公告不能修改内容，请先下架"),
     NOTICE_SCOPE_REQUIRED(2405, "指定发布范围时至少要选择一个部门或人员"),
 
+    // ---------- 业务错误：低代码表单 25xx ----------
+    FORM_NOT_FOUND(2501, "表单不存在"),
+    FORM_CODE_DUPLICATE(2502, "表单编码已存在"),
+    FORM_RULE_INVALID(2503, "表单规则格式非法，请使用设计器生成规则"),
+    FORM_IN_USE(2504, "该表单已被流程节点绑定，无法删除"),
+    FLOW_NOT_FOUND_FOR_BIND(2505, "待绑定的流程模板不存在"),
+    NODE_FORM_NOT_BOUND(2506, "该节点尚未绑定表单，无法配置字段权限"),
+    FIELD_PERM_INVALID(2507, "字段权限配置包含该表单不存在的字段，请刷新后重试"),
+    FLOW_CONDITION_INVALID(2508, "分支条件配置不合法：条件字段、运算符、取值或目标连线有误"),
+    FLOW_CONDITION_EXPR_UNSAFE(2509, "条件表达式包含不允许的语法，请检查字段名与比较值"),
+
     // ---------- 业务错误：流程引擎与审批 3xxx ----------
     FLOW_DEF_NOT_FOUND(3001, "流程模板不存在"),
     FLOW_DEF_DUPLICATE(3002, "流程编码已存在"),
@@ -77,6 +90,9 @@ public enum ErrorCode {
     TASK_NOT_FOUND(3103, "审批任务不存在"),
     TASK_NOT_CANDIDATE(3104, "当前用户不是该任务的审批人"),
     INSTANCE_CANNOT_WITHDRAW(3105, "仅审批中的申请可以撤销"),
+    INSTANCE_CANNOT_SUSPEND(3106, "仅审批中的申请可以挂起"),
+    INSTANCE_ALREADY_SUSPENDED(3107, "审批单已挂起，无需重复操作"),
+    INSTANCE_NOT_SUSPENDED(3108, "仅已挂起的审批单可以恢复"),
 
     // ---------- 业务错误：文件存储 4xxx ----------
     FILE_EMPTY(4001, "上传文件不能为空"),

@@ -113,6 +113,17 @@
 		</dependency>
 
 		<!-- =============================
+		     Redis（Lettuce 客户端）
+		     - 用途：JWT 登出黑名单、字典数据缓存、登录失败限流
+		     - 只引入 data-redis：Lettuce 默认单连接共享，未引 commons-pool2 故不开连接池
+		     - 全部使用 StringRedisTemplate + 显式 JSON，不启用 default typing，避免反序列化风险
+		     ============================= -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<!-- =============================
 		     流程引擎 Flowable 8（BPMN 流程，仅引入 process 引擎，不含 CMMN/DMN）
 		     - 复用项目同一 DataSource（oa_system），流程表前缀默认 ACT_/FLW_
 		     - 关闭内建 IDM，审批人直接复用本项目 RBAC（oa_user / oa_role）
