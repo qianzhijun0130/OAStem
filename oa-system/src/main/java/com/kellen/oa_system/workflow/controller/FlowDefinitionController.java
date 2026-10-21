@@ -7,8 +7,10 @@ import com.kellen.oa_system.workflow.dto.FlowDefinitionImportRequest;
 import com.kellen.oa_system.workflow.dto.FlowDefinitionPageQuery;
 import com.kellen.oa_system.workflow.dto.FlowDefinitionSaveRequest;
 import com.kellen.oa_system.workflow.service.FlowDefinitionService;
+import com.kellen.oa_system.workflow.service.FlowVariableService;
 import com.kellen.oa_system.workflow.vo.FlowDefinitionVO;
 import com.kellen.oa_system.workflow.vo.FlowOptionVO;
+import com.kellen.oa_system.workflow.vo.FlowVariableVO;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -39,6 +41,7 @@ import java.util.List;
 public class FlowDefinitionController {
 
     private final FlowDefinitionService flowDefinitionService;
+    private final FlowVariableService flowVariableService;
 
     /**
      * 启用中的流程模板选项（只读、最小字段）。
@@ -72,6 +75,18 @@ public class FlowDefinitionController {
     @PreAuthorize("hasAuthority('system:flow:query')")
     public Result<String> bpmn(@PathVariable Long id) {
         return Result.success(flowDefinitionService.getBpmnXml(id));
+    }
+
+    /**
+     * 分支条件可用变量清单（只读）。
+     *
+     * <p>返回「发起环节主表单字段（带类型）」与「系统内置变量」两组，供设计器条件配置
+     * 渲染变量下拉。后端保存时的变量合法性校验用同一份数据，保证前后端口径一致。</p>
+     */
+    @GetMapping("/{id}/variables")
+    @PreAuthorize("hasAuthority('system:flow:query')")
+    public Result<FlowVariableVO> variables(@PathVariable Long id) {
+        return Result.success(flowVariableService.listVariables(id));
     }
 
     @PostMapping

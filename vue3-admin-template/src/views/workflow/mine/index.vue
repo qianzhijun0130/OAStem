@@ -3,11 +3,13 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ApprovalDetailDrawer from '../components/ApprovalDetailDrawer.vue'
-import { getMineApi, withdrawApprovalApi } from '@/api/approval'
+import { getMineApi, submitDraftApi, withdrawApprovalApi } from '@/api/approval'
 import type { ApprovalInstanceVO } from '@/api/types'
 
 /** 1草稿 2审批中 3已通过 4已驳回 5已撤销 */
 const STATUS_IN_PROGRESS = 2
+/** 草稿：可继续提交 */
+const STATUS_DRAFT = 1
 
 const loading = ref(false)
 const list = ref<ApprovalInstanceVO[]>([])
@@ -38,6 +40,16 @@ async function loadPage() {
   }
 }
 
+function handleSizeChange(size: number) {
+  query.pageSize = size
+  void loadPage()
+}
+
+function handlePageChange(page: number) {
+  query.pageNo = page
+  void loadPage()
+}
+
 function resetQuery() {
   query.status = undefined
   query.pageNo = 1
@@ -47,6 +59,20 @@ function resetQuery() {
 function showDetail(row: ApprovalInstanceVO) {
   detailId.value = row.id
   detailVisible.value = true
+}
+
+/** 提交草稿：提交后进入审批，列表刷新后状态变「审批中」 */
+async function submitDraftRow(row: ApprovalInstanceVO) {
+  try {
+    await ElMessageBox.confirm(`确定提交「${row.title}」吗？提交后进入审批流程。`, '提交确认', {
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  await submitDraftApi(row.id)
+  ElMessage.success('已提交')
+  await loadPage()
 }
 
 async function withdraw(row: ApprovalInstanceVO) {
@@ -96,10 +122,20 @@ onMounted(loadPage)
           <template #default="{ row }">{{ row.currentNode || '-' }}</template>
         </el-table-column>
         <el-table-column prop="createTime" label="发起时间" width="180" />
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="showDetail(row)">详情</el-button>
+            <el-button icon-only link type="primary" @click="showDetail(row)">详情</el-button>
             <el-button
+              v-if="row.status === STATUS_DRAFT"
+              icon-only
+              v-permission="'system:approval:start'"
+              link
+              type="primary"
+              @click="submitDraftRow(row)"
+            >
+              提交
+            </el-button>
+            <el-button icon-only
               v-if="row.status === STATUS_IN_PROGRESS"
               v-permission="'system:approval:withdraw'"
               link
@@ -121,6 +157,8 @@ onMounted(loadPage)
         :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
         class="mine__pagination"
       />
     </el-card>

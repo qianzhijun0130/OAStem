@@ -29,6 +29,9 @@ public class FlowOptionVO {
     /** 分类（对应 flow_category 字典） */
     private String category;
 
+    /** 流程图标（Lucide 图标名）；发起页卡片直接渲染 */
+    private String icon;
+
     /**
      * 表单字段配置 JSON 字符串。
      *

@@ -56,6 +56,27 @@ export const constantRoutes: RouteRecordRaw[] = [
     ],
   },
   {
+    /**
+     * 发起流程的填单页：刻意**不进菜单**。
+     *
+     * <p>它只能从「发起流程」列表点卡片进入（路径带 flowCode），左上角返回按钮回到列表。
+     * 放在静态路由而不是后端菜单里，是因为菜单还承担侧边栏渲染职责——
+     * 若挂到菜单上，侧边栏会多出一个不该出现的入口。</p>
+     */
+    path: '/workflow/apply/:flowCode',
+    name: 'ApplyForm',
+    component: Layout,
+    meta: { title: '发起流程', hidden: true },
+    children: [
+      {
+        path: '',
+        name: 'ApplyFormPage',
+        component: () => import('@/views/workflow/apply/form.vue'),
+        meta: { title: '发起流程', hidden: true },
+      },
+    ],
+  },
+  {
     path: '/404',
     name: 'NotFound',
     component: () => import('@/views/error/404.vue'),

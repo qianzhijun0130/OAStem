@@ -2,11 +2,13 @@ package com.kellen.oa_system.workflow.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.util.StringUtils;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.workflow.dto.FlowConditionItem;
 import com.kellen.oa_system.workflow.dto.FlowDefinitionImportRequest;
 import com.kellen.oa_system.workflow.dto.FlowDefinitionPageQuery;
 import com.kellen.oa_system.workflow.dto.FlowDefinitionSaveRequest;
@@ -16,9 +18,11 @@ import com.kellen.oa_system.workflow.entity.FlowDefinition;
 import com.kellen.oa_system.workflow.mapper.ApprovalInstanceMapper;
 import com.kellen.oa_system.workflow.mapper.FlowDefinitionMapper;
 import com.kellen.oa_system.workflow.service.FlowDefinitionService;
+import com.kellen.oa_system.workflow.service.FlowVariableService;
 import com.kellen.oa_system.workflow.service.FlowableEngineService;
 import com.kellen.oa_system.workflow.util.BpmnXmlNormalizer;
 import com.kellen.oa_system.workflow.util.BpmnXmlParser;
+import com.kellen.oa_system.workflow.util.BpmnXmlValidator;
 import com.kellen.oa_system.workflow.vo.FlowDefinitionVO;
 import com.kellen.oa_system.workflow.vo.FlowOptionVO;
 import com.kellen.oa_system.system.entity.UserRole;
@@ -32,8 +36,11 @@ import org.flowable.engine.repository.ProcessDefinition;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 流程模板管理实现。
@@ -61,6 +68,7 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
     private final FlowableEngineService engineService;
     private final ObjectMapper objectMapper;
     private final UserRoleMapper userRoleMapper;
+    private final FlowVariableService flowVariableService;
 
     @Override
     public PageResult<FlowDefinitionVO> pageDefinitions(FlowDefinitionPageQuery query) {
@@ -105,6 +113,7 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
                                 FlowDefinition::getFlowCode,
                                 FlowDefinition::getFlowName,
                                 FlowDefinition::getCategory,
+                                FlowDefinition::getIcon,
                                 FlowDefinition::getFormFields)
                         .eq(FlowDefinition::getIsDeleted, 0)
                         .eq(FlowDefinition::getStatus, STATUS_ENABLED)
@@ -115,6 +124,7 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
             vo.setFlowCode(fd.getFlowCode());
             vo.setFlowName(fd.getFlowName());
             vo.setCategory(fd.getCategory());
+            vo.setIcon(fd.getIcon());
             vo.setFormFields(fd.getFormFields());
             return vo;
         }).toList();
@@ -147,12 +157,14 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         fd.setFlowCode(req.getFlowCode());
         fd.setFlowName(req.getFlowName());
         fd.setCategory(req.getCategory());
+        fd.setIcon(req.getIcon());
         fd.setFormFields(req.getFormFields());
         fd.setNodeConfig(req.getNodeConfig());
+        fd.setFlowConfig(req.getFlowConfig());
         fd.setStatus(req.getStatus() == null ? 1 : req.getStatus());
         fd.setRemark(req.getRemark());
         if (StringUtils.hasText(req.getBpmnXml())) {
-            deployAndBind(fd, req.getBpmnXml());
+            deployAndBind(fd, req.getBpmnXml(), parseFlowConfig(req.getFlowConfig()));
         }
         flowDefinitionMapper.insert(fd);
         return fd.getId();
@@ -165,12 +177,14 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
             if (StringUtils.hasText(existing.getDeploymentId())) {
                 engineService.undeploy(existing.getDeploymentId());
             }
-            deployAndBind(existing, req.getBpmnXml());
+            deployAndBind(existing, req.getBpmnXml(), parseFlowConfig(req.getFlowConfig()));
         }
         existing.setFlowName(req.getFlowName());
         existing.setCategory(req.getCategory());
+        existing.setIcon(req.getIcon());
         existing.setFormFields(req.getFormFields());
         existing.setNodeConfig(req.getNodeConfig());
+        existing.setFlowConfig(req.getFlowConfig());
         if (req.getStatus() != null) {
             existing.setStatus(req.getStatus());
         }
@@ -183,8 +197,10 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         update.setId(existing.getId());
         update.setFlowName(existing.getFlowName());
         update.setCategory(existing.getCategory());
+        update.setIcon(existing.getIcon());
         update.setFormFields(existing.getFormFields());
         update.setNodeConfig(existing.getNodeConfig());
+        update.setFlowConfig(existing.getFlowConfig());
         update.setStatus(existing.getStatus());
         update.setRemark(existing.getRemark());
         update.setDeploymentId(existing.getDeploymentId());
@@ -193,7 +209,69 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         return existing.getId();
     }
 
-    private void deployAndBind(FlowDefinition fd, String bpmnXml) {
+    /**
+     * 解析分支条件配置 JSON。
+     *
+     * <p><b>解析失败必须抛错而不是当作空配置</b>：静默丢弃会让「保存成功但流程行为与配置不符」——
+     * 用户在界面上明明配了 {@code days > 3} 走人事，跑起来却全走主管，这类静默错路由
+     * 比保存时报错难排查一个数量级。</p>
+     *
+     * @return 解析结果；入参为空时返回空列表（历史模板与未配条件的场景）
+     * @throws BizException 2508 JSON 非法或结构不符
+     */
+    private List<FlowConditionItem> parseFlowConfig(String flowConfig) {
+        if (!StringUtils.hasText(flowConfig)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(flowConfig, new TypeReference<List<FlowConditionItem>>() {
+            });
+        } catch (Exception e) {
+            log.warn("分支条件配置 JSON 解析失败：{}", e.getMessage());
+            throw new BizException(ErrorCode.FLOW_CONDITION_INVALID,
+                    "分支条件配置格式非法，请重新打开设计器再保存");
+        }
+    }
+
+    /**
+     * 校验分支条件引用的变量名是否合法（必须落在「本流程表单字段 ∪ 系统内置变量」内）。
+     *
+     * <p><b>为什么必须校验</b>：运行时若引用了一个不存在的变量名，JUEL 求值取到 null，
+     * 网关会静默走默认分支——流程"看起来正常"、单据也能走完，但路由是错的。
+     * 这类问题在保存阶段拦住，用户当场就能看到是哪个变量名写错；
+     * 等到上线后排查「为什么这个单子没走大额审批」，成本要高一个数量级。</p>
+     *
+     * <p><b>两个豁免</b>：
+     * <ol>
+     *   <li>手写表达式（{@code raw}）模式不校验：从表达式文本里正则抽变量名会误伤字符串
+     *       字面量（如 {@code ${reason == 'outcome'}}），且该模式本就只开放给持有
+     *       {@code system:flow:condition-raw} 权限的人；</li>
+     *   <li>模板 id 为空（首次保存、尚未落库）时跳过：此时拿不到流程主键，无法解析
+     *       绑定了哪个表单。实际业务里"先保存模板 → 再绑定表单 → 再配条件"，
+     *       走到这一步时模板已有 id，不会漏校验。</li>
+     * </ol>
+     * </p>
+     */
+    private void assertConditionVariablesValid(Long flowDefId, List<FlowConditionItem> conditions) {
+        if (flowDefId == null || conditions == null || conditions.isEmpty()) {
+            return;
+        }
+        Set<String> validKeys = flowVariableService.listValidKeys(flowDefId);
+        for (FlowConditionItem item : conditions) {
+            if (item == null || item.isRawMode()) {
+                continue;
+            }
+            for (String field : item.referencedFields()) {
+                if (!validKeys.contains(field)) {
+                    throw new BizException(ErrorCode.FLOW_CONDITION_INVALID,
+                            "条件变量「" + field + "」不存在：请从变量下拉中选择（表单字段需先在「表单绑定」页绑定表单，"
+                                    + "或改用「发起人 / 部门 / 审批结果」等系统变量）");
+                }
+            }
+        }
+    }
+
+    private void deployAndBind(FlowDefinition fd, String bpmnXml, List<FlowConditionItem> conditions) {
         // 1) 归一化：把 BPMN 的 <process id> 统一改写为流程编码。
         //    引擎的流程定义 key 取自 <process id>，而「发起申请」按 key 启动且取最新版本；
         //    若多个模板共用同一个 process id（设计器新建时默认 process_1），后部署的会顶掉先部署的，
@@ -202,9 +280,20 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         // 2) 预展开 role:X → candidateUsers：让 Flowable 部署时直接写「用户」身份链接，
         //    避免本库未启用 IDM 导致 candidateGroups 节点永远进不了待办（修复 SMOKE-D01）。
         normalizedXml = BpmnXmlNormalizer.preExpandCandidateUsers(normalizedXml, this::resolveRoleUsers);
-        // 3) 归一化已完成，这里的 key 即流程编码；仍按 BPMN 实际内容解析，避免与实际部署结果脱节。
+        // 3) 注入分支条件：把 flow_config 的结构化条件写进 sequenceFlow 的 conditionExpression，
+        //    并为默认分支所在网关写 default 属性。只处理配置里出现的连线，未出现的保持原样
+        //    （内置模板手写的 ${outcome == 'approve'} 等历史表达式因此不受影响）。
+        //    注入前先做变量合法性校验：拿到错误提示时 XML 还没被改动，失败路径干净。
+        assertConditionVariablesValid(fd.getId(), conditions);
+        normalizedXml = BpmnXmlNormalizer.injectConditions(normalizedXml, conditions);
+        // 4) 归一化已完成，这里的 key 即流程编码；仍按 BPMN 实际内容解析，避免与实际部署结果脱节。
         BpmnXmlParser.ParsedBpmn parsed = BpmnXmlParser.parse(normalizedXml);
         assertBpmnKeyAvailable(parsed.key(), fd.getFlowCode());
+        // 5) 结构校验：拦住「能解析但跑起来会错位 / 卡死」的流程（缺开始/结束事件、排他网关缺默认
+        //    分支、孤立节点等）。校验只看 BPMN 结构，不校验审批人——设计器把审批人写在 node_config
+        //    而不写进 BPMN，是否已配审批人由设计器保存/发布路径（前端 validatePublishable + 运行期
+        //    ApprovalServiceImpl.resolveCandidates 的兜底）把关，避免在此误拒所有设计器保存。
+        assertBpmnStructureValid(normalizedXml);
 
         var deployment = deploy(fd.getFlowCode(), normalizedXml);
         ProcessDefinition pd = engineService.getLatestProcessDefinition(parsed.key());
@@ -251,11 +340,23 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
     }
 
     /**
-     * 兜底校验：即将使用的流程标识不能已被别的模板占用。
+     * 结构校验：把「能解析、但运行期会错位或卡死」的流程在设计器保存时当场拦住。
      *
-     * <p>归一化已保证 key == flowCode，而 flowCode 的唯一性在校验前置；此处再查一次是对
-     * <b>存量脏数据</b>（归一化上线前创建、bpmn_key 与 flow_code 不一致的模板）和未来新增部署
-     * 入口的安全网——宁可保存时报错，也不要等到发起时才「跑错流程」。</p>
+     * <p>对齐 RuoYi 流程设计的严格模式：保存即校验，错误信息携带节点名称与原因，
+     * 用户无需等到发起申请才发现「网关忘了配默认分支 / 画了孤立节点」。</p>
+     */
+    private void assertBpmnStructureValid(String normalizedXml) {
+        List<BpmnXmlValidator.StructureIssue> issues = BpmnXmlValidator.validate(normalizedXml);
+        if (!issues.isEmpty()) {
+            String detail = issues.stream()
+                    .map(i -> (i.nodeName() != null ? "「" + i.nodeName() + "」" : "") + i.message())
+                    .collect(Collectors.joining("；"));
+            throw new BizException(ErrorCode.FLOW_BPMN_INVALID, "流程结构校验未通过：" + detail);
+        }
+    }
+
+    /**
+     * 兜底校验：即将使用的流程标识不能已被别的模板占用。
      */
     private void assertBpmnKeyAvailable(String bpmnKey, String flowCode) {
         Long occupied = flowDefinitionMapper.selectCount(new LambdaQueryWrapper<FlowDefinition>()
@@ -307,7 +408,9 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         fd.setRemark(req.getRemark());
         fd.setStatus(1);
         fd.setNodeConfig(writeNodeConfig(parsed.nodes()));
-        deployAndBind(fd, req.getBpmnXml());
+        // 导入的 BPMN 不带结构化条件配置：条件若已写在 XML 的 conditionExpression 里会原样部署，
+        // 需要可视化配置时在设计器打开后重新保存即可生成 flow_config。
+        deployAndBind(fd, req.getBpmnXml(), List.of());
         flowDefinitionMapper.insert(fd);
         log.info("导入流程模板成功 flowCode={} bpmnKey={} 节点数={}", fd.getFlowCode(), fd.getBpmnKey(),
                 parsed.nodes().size());
@@ -362,12 +465,65 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
 
     @Override
     public void updateStatus(Long id, Integer status) {
-        getById(id);
+        FlowDefinition fd = getById(id);
+        // 发布（status=1）前做审批人完整性校验：设计器把审批人写在 node_config（不写进 BPMN），
+        // 未配置的节点发起后无人可办。这是直接调接口时的最后一道闸，与前端「发布」按钮同口径。
+        if (Integer.valueOf(STATUS_ENABLED).equals(status)) {
+            assertAssigneeConfigComplete(fd);
+        }
         // 同上：只提交 id + status，让 update_time 走自动填充
         FlowDefinition update = new FlowDefinition();
         update.setId(id);
         update.setStatus(status);
         flowDefinitionMapper.updateById(update);
+    }
+
+    /**
+     * 发布前的审批人完整性校验（基于 node_config，而非 BPMN）。
+     *
+     * <p><b>为什么读 node_config</b>：设计器把审批人规则保存在 {@code oa_flow_definition.node_config}，
+     * BPMN 的 userTask 不携带审批人（与手写种子 BPMN 的 {@code oa:assignee} 不同），故只能以 node_config 为准。</p>
+     *
+     * <p><b>校验口径</b>：未配置规则（type=0）、或规则要求选人/角色/部门却未取值，均不允许发布；
+     * 「部门主管 / 申请人本人」类型本身即可确定候选人，只校验类型、不要求取值。仅取类型默认值、不校验层级——
+     * 部门主管的 assigneeValue 是可选层级，留空按 1 处理。</p>
+     */
+    private void assertAssigneeConfigComplete(FlowDefinition fd) {
+        List<String> problems = new ArrayList<>();
+        for (NodeConfigItem item : readNodeConfig(fd.getNodeConfig())) {
+            int type = item.getAssigneeType() == null ? BpmnXmlParser.ASSIGNEE_UNSET : item.getAssigneeType();
+            String label = StringUtils.hasText(item.getNodeName()) ? item.getNodeName()
+                    : (StringUtils.hasText(item.getNodeId()) ? item.getNodeId() : "未命名节点");
+            if (type == BpmnXmlParser.ASSIGNEE_UNSET) {
+                problems.add("「" + label + "」未配置审批人");
+            } else if ((type == BpmnXmlParser.ASSIGNEE_USER || type == BpmnXmlParser.ASSIGNEE_ROLE
+                    || type == BpmnXmlParser.ASSIGNEE_DEPT_LEADER)
+                    && !StringUtils.hasText(item.getAssigneeValue())) {
+                problems.add("「" + label + "」未选择具体" + switch (type) {
+                    case BpmnXmlParser.ASSIGNEE_USER -> "人员";
+                    case BpmnXmlParser.ASSIGNEE_ROLE -> "角色";
+                    default -> "部门";
+                });
+            }
+        }
+        if (!problems.isEmpty()) {
+            throw new BizException(ErrorCode.FLOW_BPMN_INVALID,
+                    "发布前请先补全审批人配置：" + String.join("；", problems));
+        }
+    }
+
+    /** 解析 node_config JSON；空或损坏时返回空列表（结构问题由设计器与部署期校验拦截）。 */
+    private List<NodeConfigItem> readNodeConfig(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            NodeConfigItem[] arr = objectMapper.readValue(json, NodeConfigItem[].class);
+            return List.of(arr);
+        } catch (Exception e) {
+            log.warn("node_config 解析失败，跳过审批人完整性校验：{}", e.getMessage());
+            return List.of();
+        }
     }
 
     private FlowDefinition getById(Long id) {
@@ -386,10 +542,12 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         vo.setFlowCode(fd.getFlowCode());
         vo.setFlowName(fd.getFlowName());
         vo.setCategory(fd.getCategory());
+        vo.setIcon(fd.getIcon());
         vo.setBpmnKey(fd.getBpmnKey());
         vo.setDeploymentId(fd.getDeploymentId());
         vo.setFormFields(fd.getFormFields());
         vo.setNodeConfig(fd.getNodeConfig());
+        vo.setFlowConfig(fd.getFlowConfig());
         vo.setStatus(fd.getStatus());
         vo.setRemark(fd.getRemark());
         vo.setCreateTime(fd.getCreateTime());

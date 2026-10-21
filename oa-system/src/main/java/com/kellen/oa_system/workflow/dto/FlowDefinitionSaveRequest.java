@@ -31,6 +31,9 @@ public class FlowDefinitionSaveRequest {
     @Size(max = 32, message = "分类长度不能超过 32")
     private String category;
 
+    /** 流程图标（Lucide 图标名，选填） */
+    private String icon;
+
     /** 前端 modeler 产出的 BPMN XML（调整流程结构时必填） */
     private String bpmnXml;
 
@@ -39,6 +42,15 @@ public class FlowDefinitionSaveRequest {
 
     /** 节点审批人规则 JSON */
     private String nodeConfig;
+
+    /**
+     * 网关分支条件配置 JSON。
+     *
+     * <p>保存时与 bpmnXml 一同提交：后端据此在部署前注入 conditionExpression。
+     * 传 null/空串表示清空全部可视化条件（已注入的表达式会随本次部署的 BPMN 一起被覆盖，
+     * 因为注入只处理本配置里出现的连线，未出现的连线以 bpmnXml 里的当前状态为准）。</p>
+     */
+    private String flowConfig;
 
     /** 1启用 0停用，缺省 1 */
     @Min(value = 0, message = "状态只能是 0停用 1启用")
