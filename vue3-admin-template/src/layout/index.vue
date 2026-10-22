@@ -25,10 +25,6 @@ onBeforeUnmount(() => {
 <template>
   <el-container class="oa-layout">
     <el-aside class="oa-layout__aside" :width="collapsed ? '64px' : '210px'">
-      <div class="oa-layout__logo">
-        <span v-if="!collapsed">OA 管理系统</span>
-        <span v-else>OA</span>
-      </div>
       <Sidebar :collapsed="collapsed" />
     </el-aside>
 
@@ -49,21 +45,11 @@ onBeforeUnmount(() => {
 }
 
 .oa-layout__aside {
+  /* 深色纵向渐变替代原来的纯色块：上深下浅，与白底 Header 形成干净的明暗分界 */
   background-color: var(--oa-sidebar-bg);
-  transition: width 0.28s;
+  background-image: var(--oa-sidebar-grad);
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
-}
-
-.oa-layout__logo {
-  height: var(--oa-header-height);
-  line-height: var(--oa-header-height);
-  text-align: center;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 600;
-  background-color: #2b3649;
-  overflow: hidden;
-  white-space: nowrap;
 }
 
 .oa-layout__header {

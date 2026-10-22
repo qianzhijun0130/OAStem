@@ -1,6 +1,7 @@
 :root {
-  --oa-sidebar-bg: #304156;
-  --oa-sidebar-text: #bfcbd9;
+  --oa-sidebar-bg: #1c2937;
+  --oa-sidebar-grad: linear-gradient(180deg, #18222f 0%, #1f3247 62%, #1b2b3d 100%);
+  --oa-sidebar-text: #9fb0c6;
   --oa-sidebar-active: #409eff;
   --oa-header-height: 60px;
   /* Header 视觉基调：品牌色 / 白底 / 分隔线，改主题只动这三个变量 */
@@ -71,4 +72,34 @@ body {
 .el-table td.el-table__cell > .cell {
   text-align: center;
   justify-content: center;
+}
+
+/* ============================================================
+ * 侧边栏收起后的子菜单浮层（放在全局）
+ * 浮层被 teleport 到 body，scoped 样式够不到；深色基调必须与侧边栏一致，
+ * 否则收起态一 hover 就弹出一个白底浮层，明暗割裂。
+ * ============================================================ */
+.el-menu--popup {
+  --el-menu-bg-color: #1f3247;
+  --el-menu-text-color: #9fb0c6;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.08);
+  --el-menu-hover-text-color: #e9f0fa;
+  --el-menu-active-color: #fff;
+  min-width: 176px;
+  padding: 6px;
+  background-color: #1f3247;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(9, 16, 26, 0.36);
+}
+
+.el-menu--popup .el-menu-item {
+  height: 38px;
+  padding: 0 12px;
+  margin: 1px 0;
+  border-radius: 7px;
+}
+
+.el-menu--popup .el-menu-item.is-active {
+  font-weight: 600;
+  background-color: rgba(64, 158, 255, 0.22);
 }
