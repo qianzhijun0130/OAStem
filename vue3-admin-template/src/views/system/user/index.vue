@@ -320,16 +320,16 @@ function openImport() {
 
 function onImportFileChange(file: { raw?: File; name?: string }) {
   importResult.value = null
-  importFile.value = file?.raw ?? null
-}
-
-function beforeImportUpload(rawFile: File) {
-  const name = rawFile.name.toLowerCase()
-  if (!name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+  const raw = file?.raw ?? null
+  // auto-upload=false 时 before-upload 不会执行，类型校验必须落在 onChange：
+  // 否则拖入 .exe 改名文件会一路发到后端（后端仍会拒，但没必要多一次往返）。
+  const name = (raw?.name ?? file?.name ?? '').toLowerCase()
+  if (raw && !name.endsWith('.xlsx') && !name.endsWith('.xls')) {
     ElMessage.error('只支持 .xlsx / .xls 格式的 Excel 文件')
-    return false
+    importFile.value = null
+    return
   }
-  return true
+  importFile.value = raw
 }
 
 async function submitImport() {
@@ -594,17 +594,18 @@ async function loadDeptAndRoles() {
         <el-form-item>
           <el-upload
             :auto-upload="false"
-            :limit="1"
+            :show-file-list="false"
             :accept="ACCEPTED_EXCEL"
-            :before-upload="beforeImportUpload"
             :on-change="onImportFileChange"
-            :on-exceed="() => ElMessage.warning('每次只能导入一个文件')"
           >
             <template #trigger>
               <el-button type="primary">选择 Excel 文件</el-button>
             </template>
             <template #tip>
-              <div class="user__upload-tip">支持 .xlsx / .xls，单次不超过 5000 行</div>
+              <div class="user__upload-tip">
+                支持 .xlsx / .xls，单次不超过 5000 行
+                <span v-if="importFile" class="user__upload-file">已选择：{{ importFile.name }}</span>
+              </div>
             </template>
           </el-upload>
         </el-form-item>
@@ -645,6 +646,11 @@ async function loadDeptAndRoles() {
   margin-top: 8px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+/* 已选文件名：与提示文字同色但更深，便于确认「这次传的是哪个文件」 */
+.user__upload-file {
+  margin-left: 8px;
+  color: var(--el-text-color-regular);
 }
 .user__import-more {
   margin-top: 8px;
