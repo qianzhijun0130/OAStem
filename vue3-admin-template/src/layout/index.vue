@@ -67,10 +67,13 @@ onBeforeUnmount(() => {
 }
 
 .oa-layout__header {
+  position: relative;
+  z-index: 10;
   height: var(--oa-header-height);
   padding: 0;
-  background-color: #fff;
-  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  background-color: var(--oa-header-bg);
+  /* 用 1px 描边替代原来的厚投影：与内容区分离但不发灰，且不压住下方卡片 */
+  border-bottom: 1px solid var(--oa-header-border);
 }
 
 .oa-layout__main {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -12,6 +12,9 @@ const emit = defineEmits<{ toggle: [] }>()
 const userStore = useUserStore()
 const router = useRouter()
 const route = useRoute()
+
+/** 用户下拉是否展开：仅用于把右侧箭头做 180° 翻转 */
+const userMenuOpen = ref(false)
 
 interface Crumb {
   name: string
@@ -104,6 +107,10 @@ const crumbs = computed<Crumb[]>(() => {
   return deduped.length ? deduped : [{ name: '工作台' }]
 })
 
+const displayName = computed(() => userStore.displayName || '用户')
+const initial = computed(() => displayName.value.charAt(0).toUpperCase())
+const deptName = computed(() => userStore.userInfo?.deptName ?? '')
+
 async function handleLogout() {
   try {
     await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
@@ -123,55 +130,114 @@ function goProfile() {
 </script>
 
 <template>
-  <div class="oa-navbar">
+  <header class="oa-navbar">
+    <!-- 左：收起/展开 + 面包屑 -->
     <div class="oa-navbar__left">
-      <el-icon class="oa-navbar__toggle" :size="20" @click="emit('toggle')">
-        <AppIcon :name="collapsed ? 'PanelLeftOpen' : 'PanelLeftClose'" :size="20" />
-      </el-icon>
-      <el-breadcrumb class="oa-navbar__crumb" separator="/">
-        <el-breadcrumb-item
-          v-for="(crumb, index) in crumbs"
-          :key="`${crumb.name}-${index}`"
-          :to="index < crumbs.length - 1 && crumb.path ? { path: crumb.path } : undefined"
-        >
-          <span :class="{ 'oa-navbar__crumb-current': index === crumbs.length - 1 }">
-            {{ crumb.name }}
+      <button
+        type="button"
+        class="oa-navbar__toggle"
+        :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="emit('toggle')"
+      >
+        <AppIcon :name="collapsed ? 'PanelLeftOpen' : 'PanelLeftClose'" :size="18" />
+      </button>
+
+      <span class="oa-navbar__split" aria-hidden="true"></span>
+
+      <nav class="oa-navbar__crumb" aria-label="面包屑">
+        <template v-for="(crumb, index) in crumbs" :key="`${crumb.name}-${index}`">
+          <span class="oa-navbar__crumb-item">
+            <AppIcon v-if="index === 0" name="House" :size="15" class="oa-navbar__crumb-home" />
+            <router-link
+              v-if="index < crumbs.length - 1 && crumb.path"
+              :to="crumb.path"
+              class="oa-navbar__crumb-link"
+            >
+              {{ crumb.name }}
+            </router-link>
+            <span
+              v-else
+              class="oa-navbar__crumb-text"
+              :class="{ 'is-current': index === crumbs.length - 1 }"
+            >
+              {{ crumb.name }}
+            </span>
           </span>
-        </el-breadcrumb-item>
-      </el-breadcrumb>
+          <AppIcon
+            v-if="index < crumbs.length - 1"
+            name="ChevronRight"
+            :size="13"
+            class="oa-navbar__crumb-sep"
+          />
+        </template>
+      </nav>
     </div>
 
+    <!-- 右：用户信息 + 下拉菜单 -->
     <div class="oa-navbar__right">
-      <el-dropdown trigger="click">
-        <span class="oa-navbar__user">
-          <el-avatar :size="28" :src="userStore.userInfo?.avatar">
-            {{ userStore.displayName.charAt(0) }}
+      <el-dropdown trigger="click" placement="bottom-end" @visible-change="userMenuOpen = $event">
+        <div class="oa-navbar__user" :class="{ 'is-open': userMenuOpen }">
+          <el-avatar :size="32" :src="userStore.userInfo?.avatar" class="oa-navbar__avatar">
+            {{ initial }}
           </el-avatar>
-          <span class="oa-navbar__name">{{ userStore.displayName }}</span>
-          <el-tag v-if="userStore.userInfo?.deptName" size="small" type="info">
-            {{ userStore.userInfo.deptName }}
-          </el-tag>
-        </span>
+          <span class="oa-navbar__meta">
+            <span class="oa-navbar__name">{{ displayName }}</span>
+            <span v-if="deptName" class="oa-navbar__dept">{{ deptName }}</span>
+          </span>
+          <AppIcon name="ChevronDown" :size="15" class="oa-navbar__caret" />
+        </div>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item @click="goProfile">个人中心</el-dropdown-item>
-            <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
+            <el-dropdown-item @click="goProfile">
+              <span class="oa-navbar__menu-item">
+                <AppIcon name="UserRound" :size="16" />
+                个人中心
+              </span>
+            </el-dropdown-item>
+            <el-dropdown-item divided @click="handleLogout">
+              <span class="oa-navbar__menu-item is-danger">
+                <AppIcon name="LogOut" :size="16" />
+                退出登录
+              </span>
+            </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
     </div>
-  </div>
+  </header>
 </template>
 
 <style scoped>
+/* ============================================================
+ * Header：左侧「折叠键 + 面包屑」，右侧「用户胶囊」
+ * 视觉基调 —— 白底 + 1px 描边（不用厚投影），靠间距与字重分层
+ * ============================================================ */
 .oa-navbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   height: 100%;
-  padding: 0 16px;
+  padding: 0 20px;
+  background-color: var(--oa-header-bg, #fff);
 }
 
+/* 底边左侧一小段品牌色渐变，压住 1px 灰线的单调，又不至于抢内容 */
+.oa-navbar::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  pointer-events: none;
+  content: '';
+  background-image: linear-gradient(90deg, var(--oa-brand, #409eff) 0%, rgba(64, 158, 255, 0) 34%);
+  opacity: 0.65;
+}
+
+/* ---------- 左区 ---------- */
 .oa-navbar__left {
   display: flex;
   align-items: center;
@@ -179,40 +245,204 @@ function goProfile() {
   min-width: 0;
 }
 
+/* 折叠键做成 34×34 的圆角芯片：既有明确的点击热区，hover 时才有反馈 */
 .oa-navbar__toggle {
-  cursor: pointer;
-  color: #303133;
+  display: inline-flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #5b6474;
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
+  border-radius: 10px;
+  transition: background-color 0.18s, color 0.18s, transform 0.18s;
 }
 
-/* 面包屑可能很长（顶级菜单 + 子菜单名都不短），窄屏时整体省略而不是撑破 Header */
+.oa-navbar__toggle:hover {
+  color: var(--oa-brand, #409eff);
+  background-color: #f2f6fd;
+}
+
+.oa-navbar__toggle:active {
+  transform: scale(0.92);
+}
+
+.oa-navbar__toggle:focus-visible {
+  outline: 2px solid rgba(64, 158, 255, 0.4);
+  outline-offset: 1px;
+}
+
+/* 折叠键与面包屑之间的竖向分隔线，避免两个元素“粘”在一起 */
+.oa-navbar__split {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  background-color: #e8ecf3;
+}
+
+/* ---------- 面包屑 ---------- */
 .oa-navbar__crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
-/* 末项加粗表示「当前所在页面」，与可点的上级区分开 */
-.oa-navbar__crumb-current {
+.oa-navbar__crumb-item {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.oa-navbar__crumb-home {
+  flex-shrink: 0;
+  color: #aab3c2;
+}
+
+/* 上级：弱化的中性色，hover 才点亮品牌色——把视觉重量留给末项 */
+.oa-navbar__crumb-link {
+  font-size: 13px;
+  color: #8a94a5;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: color 0.18s;
+}
+
+.oa-navbar__crumb-link:hover {
+  color: var(--oa-brand, #409eff);
+}
+
+.oa-navbar__crumb-link:focus-visible {
+  outline: 2px solid rgba(64, 158, 255, 0.4);
+  outline-offset: 2px;
+}
+
+.oa-navbar__crumb-text {
+  font-size: 13px;
+  color: #8a94a5;
+}
+
+/* 当前页：唯一加粗变深的节点，一眼定位「我在哪」 */
+.oa-navbar__crumb-text.is-current {
+  font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: #1f2a37;
 }
 
+.oa-navbar__crumb-sep {
+  flex-shrink: 0;
+  color: #c9d0da;
+}
+
+/* ---------- 右区 ---------- */
 .oa-navbar__right {
   flex-shrink: 0;
 }
 
+/* 用户区整体是一个可点的胶囊，hover 才铺底色，不再是裸文字 */
 .oa-navbar__user {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  padding: 4px 8px 4px 4px;
   cursor: pointer;
+  border-radius: 999px;
   outline: none;
+  transition: background-color 0.18s;
+}
+
+.oa-navbar__user:hover,
+.oa-navbar__user.is-open {
+  background-color: #f4f7fc;
+}
+
+/* 头像：品牌色渐变 + 双层描边（白色内圈 + 淡蓝外圈），小尺寸下也有质感 */
+.oa-navbar__avatar {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background-image: linear-gradient(135deg, #7fadff 0%, #3d7bfd 100%);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px rgba(64, 158, 255, 0.16);
+}
+
+/* 姓名/部门两行堆叠，比原来「姓名 + 部门标签」更紧凑，也不抢面包屑的视觉 */
+.oa-navbar__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.25;
 }
 
 .oa-navbar__name {
-  font-size: 14px;
-  color: #303133;
+  max-width: 120px;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2a37;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oa-navbar__dept {
+  max-width: 120px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: #98a2b3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oa-navbar__caret {
+  flex-shrink: 0;
+  color: #9aa4b5;
+  transition: transform 0.22s, color 0.18s;
+}
+
+.oa-navbar__user.is-open .oa-navbar__caret {
+  color: var(--oa-brand, #409eff);
+  transform: rotate(180deg);
+}
+
+/* ---------- 下拉项 ---------- */
+.oa-navbar__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oa-navbar__menu-item.is-danger {
+  color: var(--el-color-danger, #f56c6c);
+}
+
+/* ---------- 响应式：先丢部门，再丢姓名，面包屑保持可用 ---------- */
+@media (max-width: 1024px) {
+  .oa-navbar {
+    padding: 0 14px;
+  }
+
+  .oa-navbar__dept {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .oa-navbar__name,
+  .oa-navbar__split {
+    display: none;
+  }
+
+  .oa-navbar__user {
+    padding: 4px;
+  }
 }
 </style>

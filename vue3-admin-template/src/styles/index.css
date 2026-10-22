@@ -3,6 +3,10 @@
   --oa-sidebar-text: #bfcbd9;
   --oa-sidebar-active: #409eff;
   --oa-header-height: 60px;
+  /* Header 视觉基调：品牌色 / 白底 / 分隔线，改主题只动这三个变量 */
+  --oa-brand: #409eff;
+  --oa-header-bg: #fff;
+  --oa-header-border: #eaeef5;
 }
 
 * {
