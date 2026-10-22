@@ -41,7 +41,13 @@ public class DashboardServiceImpl implements DashboardService {
 
     /** 趋势图展示的月份数（含当月） */
     private static final int TREND_MONTHS = 6;
-    private static final int LATEST_NOTICE_LIMIT = 3;
+    /**
+     * 工作台「通知公告」展示条数。
+     *
+     * <p>取 5 条：右栏还要放日历，再多会把整屏撑长；置顶优先的排序在 SQL 里完成
+     * （{@code ORDER BY top_flag DESC, publish_time DESC}），所以置顶公告一定落在前几条。</p>
+     */
+    private static final int LATEST_NOTICE_LIMIT = 5;
     private static final int USER_STATUS_ENABLED = 1;
     private static final DateTimeFormatter MONTH_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
 

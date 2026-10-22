@@ -6,6 +6,7 @@ import { getDashboardOverviewApi } from '@/api/dashboard'
 import { getDoneApi, getMineApi, getTodoApi } from '@/api/approval'
 import { logAsyncError } from '@/utils/asyncGuard'
 import ApprovalDetailDrawer from '@/views/workflow/components/ApprovalDetailDrawer.vue'
+import NoticeDetailDialog from '@/components/notice/NoticeDetailDialog.vue'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import type {
   ApprovalInstanceVO,
@@ -28,12 +29,6 @@ import type {
  * </ul>
  * 设计图右侧的天气模块暂不实现（无数据源），故不占位。</p>
  */
-
-const NOTICE_LEVEL: Record<number, { label: string; type: 'info' | 'warning' | 'danger' }> = {
-  1: { label: '普通', type: 'info' },
-  2: { label: '重要', type: 'warning' },
-  3: { label: '紧急', type: 'danger' },
-}
 
 const TAB_TODO = 'todo'
 const TAB_DONE = 'done'
@@ -103,6 +98,34 @@ const dateText = computed(() => {
 })
 
 const notices = computed<LatestNoticeVO[]>(() => overview.value?.latestNotices ?? [])
+
+/**
+ * 公告列表行。
+ *
+ * <p>只给「重要 / 紧急」挂级别标签：普通公告也挂标签会让 5 行都变成彩色块，反而看不出轻重。
+ * 「置顶」与级别<b>同时展示</b>——置顶说的是排序，级别说的是重要性，二者不是互斥关系。</p>
+ */
+type LevelTag = { label: string; type: 'warning' | 'danger' }
+const noticeItems = computed(() =>
+  notices.value.map((item) => {
+    let levelTag: LevelTag | null = null
+    if (item.noticeLevel === 3) {
+      levelTag = { label: '紧急', type: 'danger' }
+    } else if (item.noticeLevel === 2) {
+      levelTag = { label: '重要', type: 'warning' }
+    }
+    return { ...item, levelTag }
+  }),
+)
+
+/** 公告详情弹窗：点列表项打开，点击「查看更多」仍跳「我的公告」页 */
+const noticeDialogVisible = ref(false)
+const activeNoticeId = ref<number>()
+
+function openNotice(item: LatestNoticeVO) {
+  activeNoticeId.value = item.id
+  noticeDialogVisible.value = true
+}
 
 /** 选中日期的待办（真实数据） */
 const selectedDayKey = computed(() => {
@@ -347,16 +370,17 @@ onMounted(async () => {
           <h3 class="panel__title">通知公告</h3>
           <el-button link type="primary" @click="go('/notice/my')">查看更多</el-button>
         </header>
-        <ul v-if="notices.length" class="notice">
-          <li v-for="item in notices" :key="item.id" class="notice__item" @click="go('/notice/my')">
+        <ul v-if="noticeItems.length" class="notice">
+          <li
+            v-for="item in noticeItems"
+            :key="item.id"
+            class="notice__item"
+            :title="item.noticeTitle"
+            @click="openNotice(item)"
+          >
             <el-tag v-if="item.topFlag === 1" size="small" type="danger" effect="plain">置顶</el-tag>
-            <el-tag
-              v-else
-              size="small"
-              effect="plain"
-              :type="NOTICE_LEVEL[item.noticeLevel]?.type ?? 'info'"
-            >
-              {{ NOTICE_LEVEL[item.noticeLevel]?.label ?? '普通' }}
+            <el-tag v-if="item.levelTag" size="small" effect="plain" :type="item.levelTag.type">
+              {{ item.levelTag.label }}
             </el-tag>
             <span class="notice__title">{{ item.noticeTitle }}</span>
             <span class="notice__time">{{ (item.publishTime ?? '').slice(0, 10) }}</span>
@@ -397,6 +421,8 @@ onMounted(async () => {
       :instance-id="drawerInstanceId"
       @done="onDrawerDone"
     />
+
+    <NoticeDetailDialog v-model="noticeDialogVisible" :notice-id="activeNoticeId" />
   </div>
 </template>
 
