@@ -46,9 +46,17 @@ public class FlowDefinitionSaveRequest {
     /**
      * 网关分支条件配置 JSON。
      *
-     * <p>保存时与 bpmnXml 一同提交：后端据此在部署前注入 conditionExpression。
-     * 传 null/空串表示清空全部可视化条件（已注入的表达式会随本次部署的 BPMN 一起被覆盖，
-     * 因为注入只处理本配置里出现的连线，未出现的连线以 bpmnXml 里的当前状态为准）。</p>
+     * <p>保存时与 bpmnXml 一同提交：后端据此在部署前注入 conditionExpression。</p>
+     *
+     * <p><b>清空语义（D1 修复后）</b>：传 null/空串表示清空全部可视化条件。清空时后端会
+     * 同时删掉「上次由本配置注入到 BPMN 上的 conditionExpression」，避免出现「界面清空了、
+     * 运行仍按旧条件分流」。两点边界：</p>
+     * <ul>
+     *   <li>不带 bpmnXml 时只清库里的配置，引擎侧旧版本仍按原条件运行，待下次重新部署生效；</li>
+     *   <li>带着 bpmnXml 且画布上仍是从排他网关分出多条线时，清空条件会让「非默认分支既无条件
+     *       也非默认」→ 部署被结构校验拒绝（3005）。这种图形本身无法运行，需先在画布上改掉网关，
+     *       而不是期望后端猜一个路由。</li>
+     * </ul>
      */
     private String flowConfig;
 

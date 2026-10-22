@@ -1,6 +1,7 @@
 package com.kellen.oa_system.workflow.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -36,7 +37,9 @@ import org.flowable.engine.repository.ProcessDefinition;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -156,13 +159,13 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         FlowDefinition fd = new FlowDefinition();
         fd.setFlowCode(req.getFlowCode());
         fd.setFlowName(req.getFlowName());
-        fd.setCategory(req.getCategory());
-        fd.setIcon(req.getIcon());
-        fd.setFormFields(req.getFormFields());
-        fd.setNodeConfig(req.getNodeConfig());
-        fd.setFlowConfig(req.getFlowConfig());
+        fd.setCategory(blankToNull(req.getCategory()));
+        fd.setIcon(blankToNull(req.getIcon()));
+        fd.setFormFields(blankToNull(req.getFormFields()));
+        fd.setNodeConfig(blankToNull(req.getNodeConfig()));
+        fd.setFlowConfig(blankToNull(req.getFlowConfig()));
         fd.setStatus(req.getStatus() == null ? 1 : req.getStatus());
-        fd.setRemark(req.getRemark());
+        fd.setRemark(blankToNull(req.getRemark()));
         if (StringUtils.hasText(req.getBpmnXml())) {
             deployAndBind(fd, req.getBpmnXml(), parseFlowConfig(req.getFlowConfig()));
         }
@@ -173,40 +176,80 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
     private Long updateExisting(FlowDefinitionSaveRequest req) {
         FlowDefinition existing = getById(req.getId());
         if (StringUtils.hasText(req.getBpmnXml())) {
-            // 重新部署：先卸载旧部署
-            if (StringUtils.hasText(existing.getDeploymentId())) {
-                engineService.undeploy(existing.getDeploymentId());
-            }
             deployAndBind(existing, req.getBpmnXml(), parseFlowConfig(req.getFlowConfig()));
         }
         existing.setFlowName(req.getFlowName());
-        existing.setCategory(req.getCategory());
-        existing.setIcon(req.getIcon());
-        existing.setFormFields(req.getFormFields());
-        existing.setNodeConfig(req.getNodeConfig());
-        existing.setFlowConfig(req.getFlowConfig());
+        // 可清空的列统一「空白 → null」：否则前端清空后传空串会落成 ''，
+        // 与「未配置」在库里有两种表示，查询与回显都要额外兼容（D1 同源问题）。
+        existing.setCategory(blankToNull(req.getCategory()));
+        existing.setIcon(blankToNull(req.getIcon()));
+        existing.setFormFields(blankToNull(req.getFormFields()));
+        existing.setNodeConfig(blankToNull(req.getNodeConfig()));
+        existing.setFlowConfig(blankToNull(req.getFlowConfig()));
+        existing.setRemark(blankToNull(req.getRemark()));
         if (req.getStatus() != null) {
             existing.setStatus(req.getStatus());
         }
-        existing.setRemark(req.getRemark());
-        // 只提交「id + 变更字段」的部分实体：整实体回写会带上从库里读出的旧 updateTime，
-        // MyBatis-Plus 的自动填充不覆盖非空值，旧值会被显式写进 SET，
-        // 使 MySQL 的 ON UPDATE CURRENT_TIMESTAMP 失效（详见 DictTypeServiceImpl#saveType）。
+        // 用 LambdaUpdateWrapper 显式 set 每一列，而不是 updateById(部分实体)：
+        // MyBatis-Plus 的 NOT_NULL 策略会把 null 字段从 SET 里剔除，导致「传 null 清空」失效
+        // （D1：flowConfig 清空后旧值仍在，DTO 注释承诺落不了地；icon / category / remark 同理）。
+        // 代价是 wrapper 更新不触发自动填充，update_time 需要自己给（见下）。
         // 注意：deployAndBind 会把部署结果写回实体，deploymentId / bpmnKey 必须一并落库。
-        FlowDefinition update = new FlowDefinition();
-        update.setId(existing.getId());
-        update.setFlowName(existing.getFlowName());
-        update.setCategory(existing.getCategory());
-        update.setIcon(existing.getIcon());
-        update.setFormFields(existing.getFormFields());
-        update.setNodeConfig(existing.getNodeConfig());
-        update.setFlowConfig(existing.getFlowConfig());
-        update.setStatus(existing.getStatus());
-        update.setRemark(existing.getRemark());
-        update.setDeploymentId(existing.getDeploymentId());
-        update.setBpmnKey(existing.getBpmnKey());
-        flowDefinitionMapper.updateById(update);
+        LambdaUpdateWrapper<FlowDefinition> update = new LambdaUpdateWrapper<FlowDefinition>()
+                .eq(FlowDefinition::getId, existing.getId())
+                .set(FlowDefinition::getFlowName, existing.getFlowName())
+                .set(FlowDefinition::getCategory, existing.getCategory())
+                .set(FlowDefinition::getIcon, existing.getIcon())
+                .set(FlowDefinition::getFormFields, existing.getFormFields())
+                .set(FlowDefinition::getNodeConfig, existing.getNodeConfig())
+                .set(FlowDefinition::getFlowConfig, existing.getFlowConfig())
+                .set(FlowDefinition::getStatus, existing.getStatus())
+                .set(FlowDefinition::getRemark, existing.getRemark())
+                .set(FlowDefinition::getDeploymentId, existing.getDeploymentId())
+                .set(FlowDefinition::getBpmnKey, existing.getBpmnKey())
+                // update_time 必须显式给：wrapper 更新不走 MetaObjectHandler 的自动填充，
+                // 而本表 DDL 也没有 ON UPDATE CURRENT_TIMESTAMP（审计字段全靠填充），
+                // 漏掉这一行会让「改过的时间」停在旧值上。
+                .set(FlowDefinition::getUpdateTime, LocalDateTime.now());
+        flowDefinitionMapper.update(null, update);
         return existing.getId();
+    }
+
+    /**
+     * 空白字符串归一到 null。
+     *
+     * <p>「未配置」在库里只允许一种表示（NULL）。若允许空串混入，凡是按
+     * {@code IS NULL} 判断「有没有配」的地方都要额外兼容，迟早漏一处。</p>
+     */
+    private String blankToNull(String value) {
+        return StringUtils.hasText(value) ? value : null;
+    }
+
+    /**
+     * 取历史 flow_config 里涉及的连线 id，用于部署时清理「本次已删除」的注入条件。
+     *
+     * <p>解析失败按「无历史」处理而不是抛错：历史值若被人工改坏，不应连带阻断本次保存；
+     * 表达式残留最多退回旧行为（条件仍在），不会让流程部署失败。</p>
+     */
+    private Set<String> previousFlowIds(String flowConfig) {
+        if (!StringUtils.hasText(flowConfig)) {
+            return Set.of();
+        }
+        try {
+            List<FlowConditionItem> items = objectMapper.readValue(flowConfig,
+                    new TypeReference<List<FlowConditionItem>>() {
+                    });
+            Set<String> ids = new LinkedHashSet<>();
+            for (FlowConditionItem item : items) {
+                if (item != null && StringUtils.hasText(item.getFlowId())) {
+                    ids.add(item.getFlowId());
+                }
+            }
+            return ids;
+        } catch (Exception e) {
+            log.warn("解析历史 flow_config 失败，跳过条件清理：{}", e.getMessage());
+            return Set.of();
+        }
     }
 
     /**
@@ -285,7 +328,11 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         //    （内置模板手写的 ${outcome == 'approve'} 等历史表达式因此不受影响）。
         //    注入前先做变量合法性校验：拿到错误提示时 XML 还没被改动，失败路径干净。
         assertConditionVariablesValid(fd.getId(), conditions);
-        normalizedXml = BpmnXmlNormalizer.injectConditions(normalizedXml, conditions);
+        // 上一次 flow_config 涉及的连线：本次已不在配置里的，要把当初注入的表达式删掉。
+        // 画布 XML 是从「已部署资源」加载的，自带旧表达式；不清理就会「界面清空了、运行仍按旧条件分流」。
+        // 注意此处 fd.flowConfig 仍是旧值——updateExisting 在调用本方法之后才覆盖它。
+        normalizedXml = BpmnXmlNormalizer.injectConditions(normalizedXml, conditions,
+                previousFlowIds(fd.getFlowConfig()));
         // 4) 归一化已完成，这里的 key 即流程编码；仍按 BPMN 实际内容解析，避免与实际部署结果脱节。
         BpmnXmlParser.ParsedBpmn parsed = BpmnXmlParser.parse(normalizedXml);
         assertBpmnKeyAvailable(parsed.key(), fd.getFlowCode());
@@ -295,6 +342,12 @@ public class FlowDefinitionServiceImpl implements FlowDefinitionService {
         //    ApprovalServiceImpl.resolveCandidates 的兜底）把关，避免在此误拒所有设计器保存。
         assertBpmnStructureValid(normalizedXml);
 
+        // 卸载旧部署必须排在**所有校验之后**：deleteDeployment(id, true) 是级联删除，
+        // 先卸载再校验的话，一次「校验不通过」的保存就会把线上部署连同在跑实例一起删掉，
+        // 表现为「保存报错 → 流程从发起页消失」。
+        if (StringUtils.hasText(fd.getDeploymentId())) {
+            engineService.undeploy(fd.getDeploymentId());
+        }
         var deployment = deploy(fd.getFlowCode(), normalizedXml);
         ProcessDefinition pd = engineService.getLatestProcessDefinition(parsed.key());
         if (pd == null) {

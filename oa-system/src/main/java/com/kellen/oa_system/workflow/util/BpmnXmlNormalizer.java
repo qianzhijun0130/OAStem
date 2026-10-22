@@ -16,6 +16,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -327,16 +328,70 @@ public final class BpmnXmlNormalizer {
      * @throws BizException 2508 配置不合法 / 2509 表达式含危险语法
      */
     public static String injectConditions(String xml, List<FlowConditionItem> items) {
-        if (xml == null || xml.isBlank() || items == null || items.isEmpty()) {
+        return injectConditions(xml, items, null);
+    }
+
+    /**
+     * 注入分支条件，并**清理上次由本系统注入、本次已不存在的条件**。
+     *
+     * <p>为什么需要清理：设计器画布是从「已部署的 BPMN」加载的，其中已包含上一次注入的
+     * {@code <conditionExpression>}。用户在「分支条件」表格里删掉条件后保存，画布 XML 里
+     * 的旧表达式并不会自己消失——只改 {@code flow_config} 而不清理 XML，运行期仍按旧条件路由，
+     * 即「界面上清空了、流程行为没变」（D1）。</p>
+     *
+     * <p><b>只清自己注入过的</b>：{@code previouslyInjectedFlowIds} 来自上一次的 flow_config，
+     * 因此内置模板手写的 {@code ${outcome == 'approve'}} 这类表达式（从未出现在 flow_config 中）
+     * 不会被误删。清理时保留网关的 {@code default} 属性——默认分支本身可以没有条件，
+     * 保留它才能通过「排他网关必须有默认分支」的结构校验。</p>
+     *
+     * @param previouslyInjectedFlowIds 上一次 flow_config 里涉及的连线 id；null/空表示无历史
+     */
+    public static String injectConditions(String xml, List<FlowConditionItem> items,
+                                         Collection<String> previouslyInjectedFlowIds) {
+        if (xml == null || xml.isBlank()) {
+            return xml;
+        }
+        boolean hasNew = items != null && !items.isEmpty();
+        boolean hasHistory = previouslyInjectedFlowIds != null && !previouslyInjectedFlowIds.isEmpty();
+        if (!hasNew && !hasHistory) {
             return xml;
         }
         Document doc = BpmnXmlParser.parseDocument(xml);
         Map<String, Element> flows = indexSequenceFlows(doc);
         Map<String, Element> gateways = indexGateways(doc);
+        boolean changed = false;
+
+        Set<String> configured = new LinkedHashSet<>();
+        if (hasNew) {
+            for (FlowConditionItem item : items) {
+                if (item != null && trimToNull(item.getFlowId()) != null) {
+                    configured.add(item.getFlowId().trim());
+                }
+            }
+        }
+        if (hasHistory) {
+            for (String flowId : new LinkedHashSet<>(previouslyInjectedFlowIds)) {
+                String id = trimToNull(flowId);
+                if (id == null || configured.contains(id)) {
+                    continue;
+                }
+                Element flow = flows.get(id);
+                if (flow == null) {
+                    continue;
+                }
+                if (removeConditionExpression(flow)) {
+                    changed = true;
+                }
+            }
+        }
+        if (!hasNew) {
+            // 只剩清理动作：没有新条件要注入，直接返回（可能已删除旧表达式）
+            return changed ? serialize(doc) : xml;
+        }
+        items = items.stream().filter(java.util.Objects::nonNull).toList();
         // 每个网关只允许一条默认分支：注入期内先记账，配置里出现第二条即拒绝
         Set<String> defaultAssigned = new LinkedHashSet<>();
         Set<String> seenFlows = new LinkedHashSet<>();
-        boolean changed = false;
 
         for (FlowConditionItem item : items) {
             if (item == null) {
@@ -619,6 +674,22 @@ public final class BpmnXmlNormalizer {
                         "连线 " + flowId + " 的条件表达式包含不允许的语法：" + blocked);
             }
         }
+    }
+
+    /**
+     * 删除连线上的 conditionExpression（清空分支条件时使用）。
+     *
+     * @return 是否真的删掉了东西（没删说明该连线本来就没有条件，用于判断 XML 是否需要重新序列化）
+     */
+    private static boolean removeConditionExpression(Element flow) {
+        NodeList existing = flow.getElementsByTagNameNS(BpmnXmlParser.NS_BPMN, TAG_CONDITION_EXPRESSION);
+        boolean removed = false;
+        while (existing.getLength() > 0) {
+            Node old = existing.item(0);
+            old.getParentNode().removeChild(old);
+            removed = true;
+        }
+        return removed;
     }
 
     /** 写入（或覆盖）连线上的 conditionExpression：先删旧的再追加，保证覆盖语义且不重复 */
