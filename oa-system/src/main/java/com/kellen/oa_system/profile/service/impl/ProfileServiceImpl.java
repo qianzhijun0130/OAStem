@@ -6,6 +6,7 @@ import com.kellen.oa_system.file.config.FileStorageProperties;
 import com.kellen.oa_system.profile.dto.PasswordChangeRequest;
 import com.kellen.oa_system.profile.dto.ProfileUpdateRequest;
 import com.kellen.oa_system.profile.service.ProfileService;
+import com.kellen.oa_system.profile.support.BuiltinAvatars;
 import com.kellen.oa_system.profile.vo.ProfileVO;
 import com.kellen.oa_system.security.SecurityContextUtil;
 import com.kellen.oa_system.system.entity.Department;
@@ -92,7 +93,7 @@ public class ProfileServiceImpl implements ProfileService {
     public void updateAvatar(String avatar) {
         Long userId = SecurityContextUtil.getCurrentUserId();
         requireUser(userId);
-        assertInternalUploadPath(avatar);
+        assertAvatarPath(avatar);
 
         User update = new User();
         update.setId(userId);
@@ -132,11 +133,22 @@ public class ProfileServiceImpl implements ProfileService {
         return user;
     }
 
-    /** 头像必须是本站上传产出的地址，否则等于开放一个任填 URL 的字段 */
-    private void assertInternalUploadPath(String avatar) {
+    /**
+     * 头像只允许两种来源：本站上传产物（{@code /uploads/**}）或系统内置头像（{@code /avatars/avatar-NN.svg}）。
+     *
+     * <p>不做校验等于开放一个任填 URL 的字段：既可能填入失效图，也可能被当作图床/引流入口。
+     * 内置头像走 {@link BuiltinAvatars} 的精确白名单，顺带把 {@code ../} 之类的路径拼接挡掉。</p>
+     */
+    private void assertAvatarPath(String avatar) {
+        if (!StringUtils.hasText(avatar)) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "头像地址不能为空");
+        }
+        if (BuiltinAvatars.contains(avatar)) {
+            return;
+        }
         String prefix = fileStorageProperties.getAccessPrefix() + "/";
-        if (!StringUtils.hasText(avatar) || !avatar.startsWith(prefix)) {
-            throw new BizException(ErrorCode.BAD_REQUEST, "头像地址非法，请通过上传接口获取");
+        if (!avatar.startsWith(prefix) || avatar.contains("..")) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "头像地址非法，请选择系统头像或通过上传接口获取");
         }
     }
 

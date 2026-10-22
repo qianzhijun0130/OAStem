@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
-import { changePasswordApi, getProfileApi, updateAvatarApi, updateProfileApi } from '@/api/profile'
-import { uploadFileApi } from '@/api/file'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { changePasswordApi, getProfileApi, updateProfileApi } from '@/api/profile'
 import { useUserStore } from '@/stores/user'
+import AppIcon from '@/components/icons/AppIcon.vue'
+import AvatarPicker from './components/AvatarPicker.vue'
 import type { PasswordChangeRequest, ProfileUpdateRequest, ProfileVO } from '@/api/types'
-
-/** 头像上传限制：与后端 file.allowed-suffixes 的图片子集保持一致 */
-const AVATAR_ACCEPT = 'image/jpeg,image/png,image/gif,image/webp'
-const AVATAR_MAX_MB = 2
 
 const userStore = useUserStore()
 
@@ -62,11 +59,23 @@ const pwdRules: FormRules = {
   ],
 }
 
-const uploading = ref(false)
+const avatarPickerVisible = ref(false)
 const savingInfo = ref(false)
 const savingPwd = ref(false)
 
 const displayAvatar = computed(() => profile.value?.avatar || '')
+/** 无头像时头像位显示的名字首字 */
+const avatarText = computed(() => (profile.value?.realName || profile.value?.username || '?').charAt(0))
+
+/** 弹窗里存好之后同步本地状态：顶栏头像读的是 store，不改会等到下次刷新才变 */
+function onAvatarUpdated(url: string) {
+  if (profile.value) {
+    profile.value.avatar = url
+  }
+  if (userStore.userInfo) {
+    userStore.userInfo.avatar = url
+  }
+}
 
 async function loadProfile() {
   loading.value = true
@@ -104,29 +113,6 @@ async function submitInfo() {
   }
 }
 
-/** 走自定义上传：先拿文件地址，再把它写到个人资料上，避免 el-upload 的默认行为绕过业务接口 */
-async function handleAvatarUpload(options: UploadRequestOptions) {
-  const file = options.file as File
-  if (file.size > AVATAR_MAX_MB * 1024 * 1024) {
-    ElMessage.warning(`头像大小不能超过 ${AVATAR_MAX_MB}MB`)
-    return
-  }
-  uploading.value = true
-  try {
-    const uploaded = await uploadFileApi(file)
-    await updateAvatarApi(uploaded.url)
-    if (profile.value) {
-      profile.value.avatar = uploaded.url
-    }
-    if (userStore.userInfo) {
-      userStore.userInfo.avatar = uploaded.url
-    }
-    ElMessage.success('头像已更新')
-  } finally {
-    uploading.value = false
-  }
-}
-
 async function submitPassword() {
   const valid = await pwdFormRef.value?.validate().catch(() => false)
   if (!valid) {
@@ -152,19 +138,24 @@ onMounted(loadProfile)
   <div v-loading="loading" class="profile">
     <el-card shadow="never" class="profile__summary">
       <div class="summary">
-        <el-upload
-          class="summary__avatar"
-          :show-file-list="false"
-          :accept="AVATAR_ACCEPT"
-          :http-request="handleAvatarUpload"
-        >
-          <el-avatar :size="88" :src="displayAvatar">
-            {{ (profile?.realName || profile?.username || '?').charAt(0) }}
-          </el-avatar>
-          <div class="summary__avatar-tip">
-            {{ uploading ? '上传中…' : '点击更换头像' }}
-          </div>
-        </el-upload>
+        <div class="summary__avatar">
+          <button
+            type="button"
+            class="summary__avatar-btn"
+            title="更换头像"
+            aria-label="更换头像"
+            @click="avatarPickerVisible = true"
+          >
+            <el-avatar :size="88" :src="displayAvatar" class="summary__avatar-img">
+              {{ avatarText }}
+            </el-avatar>
+            <span class="summary__avatar-mask">
+              <AppIcon name="Camera" :size="16" />
+              <span>更换</span>
+            </span>
+          </button>
+          <div class="summary__avatar-tip">点击更换头像</div>
+        </div>
 
         <div class="summary__info">
           <div class="summary__name">
@@ -234,6 +225,13 @@ onMounted(loadProfile)
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <AvatarPicker
+      v-model="avatarPickerVisible"
+      :current-avatar="displayAvatar"
+      :fallback-text="avatarText"
+      @success="onAvatarUpdated"
+    />
   </div>
 </template>
 
@@ -251,11 +249,59 @@ onMounted(loadProfile)
 }
 
 .summary__avatar {
+  flex-shrink: 0;
   text-align: center;
 }
 
+/* 头像位本身是按钮：hover 才浮出「更换」蒙层，避免常驻的相机图标干扰 */
+.summary__avatar-btn {
+  position: relative;
+  display: inline-block;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 50%;
+}
+
+.summary__avatar-img {
+  display: block;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgba(64, 158, 255, 0.16);
+  transition: box-shadow 0.18s;
+}
+
+.summary__avatar-btn:hover .summary__avatar-img {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgba(64, 158, 255, 0.4);
+}
+
+.summary__avatar-btn:focus-visible {
+  outline: 2px solid rgba(64, 158, 255, 0.55);
+  outline-offset: 4px;
+}
+
+.summary__avatar-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #fff;
+  background-color: rgba(15, 26, 41, 0.48);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+
+.summary__avatar-btn:hover .summary__avatar-mask,
+.summary__avatar-btn:focus-visible .summary__avatar-mask {
+  opacity: 1;
+}
+
 .summary__avatar-tip {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 12px;
   color: #909399;
 }
