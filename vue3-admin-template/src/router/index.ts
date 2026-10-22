@@ -66,13 +66,15 @@ export const constantRoutes: RouteRecordRaw[] = [
     path: '/workflow/apply/:flowCode',
     name: 'ApplyForm',
     component: Layout,
-    meta: { title: '发起流程', hidden: true },
+    // title 取「填写申请」而不是「发起流程」：面包屑会在父级菜单「发起流程」之后再补当前页名，
+    // 同名会被去重成只剩一级，反而不清楚现在在哪一页
+    meta: { title: '填写申请', hidden: true },
     children: [
       {
         path: '',
         name: 'ApplyFormPage',
         component: () => import('@/views/workflow/apply/form.vue'),
-        meta: { title: '发起流程', hidden: true },
+        meta: { title: '填写申请', hidden: true },
       },
     ],
   },
