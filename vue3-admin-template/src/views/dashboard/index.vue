@@ -306,7 +306,11 @@ onMounted(async () => {
           class="db__table"
           empty-text="暂无数据"
         >
-          <!-- 列宽按设计图压缩到 10 列一屏可见（1440 宽 + 侧边栏 + 右栏仍不横向滚动） -->
+          <!--
+            列宽按设计图压缩到 10 列一屏可见。
+            ⚠️ 改成 6:4 后主区变窄：视口 ≥1700 时 10 列完整不滚动；1440 下主区约 709px，
+            而 10 列最小需 ~868px，会出现横向滚动（el-table 自带，不撑破卡片）。
+          -->
           <el-table-column prop="flowName" label="单据类型" min-width="100" show-overflow-tooltip />
           <el-table-column prop="code" label="单据编号" width="76" />
           <el-table-column label="审批状态" width="80">
@@ -399,7 +403,8 @@ onMounted(async () => {
 <style scoped>
 .db {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
+  /* 主区:侧栏 = 6:4（原为 1fr + 固定 330px）：右栏的公告与日历在 330px 下明显偏窄 */
+  grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
   gap: 16px;
   align-items: start;
 }
