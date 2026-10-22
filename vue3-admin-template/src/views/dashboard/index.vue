@@ -438,7 +438,8 @@ onMounted(async () => {
 
 .banner__date {
   margin: 8px 0 0;
-  font-size: 12px;
+  /* 12px → 14px：日期+星期是问候语下的第二眼信息，原字号偏小、在高分屏上糊 */
+  font-size: 14px;
   opacity: 0.85;
 }
 
