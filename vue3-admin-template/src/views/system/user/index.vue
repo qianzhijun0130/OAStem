@@ -182,11 +182,25 @@ function openCreate() {
     workNumber: '',
     // 补录历史员工时可手工改；绝大多数场景就是当天入职
     entryDate: today(),
-    roleIds: [],
+    // 新建员工默认「普通员工」：不预选的话很容易漏勾，造出能登录但看不到任何菜单的账号；
+    // 更高角色由管理员在同一个下拉里追加（后端对空角色也做了同样兜底）。
+    roleIds: defaultRoleIds(),
     password: '',
     status: 1,
   })
   dialogVisible.value = true
+}
+
+/**
+ * 默认角色 id 列表：优先按角色编码匹配 EMPLOYEE，找不到再退回名称匹配。
+ *
+ * <p>按编码匹配是因为名称可被管理员改（如改成「基层员工」），编码是稳定标识。</p>
+ */
+function defaultRoleIds(): number[] {
+  const hit =
+    roleOptions.value.find((r) => r.roleCode === 'EMPLOYEE') ??
+    roleOptions.value.find((r) => r.roleName === '普通员工')
+  return hit ? [hit.id] : []
 }
 
 function openEdit(row: UserVO) {
@@ -542,6 +556,9 @@ async function loadDeptAndRoles() {
           <el-select v-model="form.roleIds" multiple placeholder="请选择角色" style="width: 100%">
             <el-option v-for="r in roleOptions" :key="r.id" :label="r.roleName" :value="r.id" />
           </el-select>
+          <div v-if="!isEdit" class="user-form__tip">
+            默认已选「普通员工」，需要更多权限请在此追加角色（保存后由管理员维护）
+          </div>
         </el-form-item>
         <el-form-item label="登录密码" prop="password">
           <el-input
@@ -616,6 +633,13 @@ async function loadDeptAndRoles() {
 <style scoped>
 .user__toolbar {
   margin-bottom: 16px;
+}
+/* 表单项下方的说明文字：与 el-form 的错误提示区分开（灰、不占校验位） */
+.user-form__tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
 .user__upload-tip {
   margin-top: 8px;

@@ -66,6 +66,15 @@ public class UserServiceImpl implements UserService {
     /** 新增员工 / 重置密码时统一使用的初始密码 */
     public static final String DEFAULT_PASSWORD = "qwe@123456";
 
+    /**
+     * 新建员工未指定角色时自动绑定的默认角色编码。
+     *
+     * <p>「未分配角色」在系统里的实际后果是：能登录，但侧边栏空白、任何接口都 403 ——
+     * 这不是「权限收敛」，而是「不可用」。新建员工默认给最基础的「普通员工」，
+     * 更高权限由管理员在「编辑员工」里按需追加。</p>
+     */
+    private static final String DEFAULT_ROLE_CODE = "EMPLOYEE";
+
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
@@ -259,6 +268,27 @@ public class UserServiceImpl implements UserService {
     // 私有方法
     // ------------------------------------------------------------------
 
+    /**
+     * 取默认角色（普通员工）的主键。
+     *
+     * <p>找不到时直接报错而不是静默创建「无角色」账号：无角色用户能登录但看不到任何菜单、
+     * 调任何接口都 403，排查成本远高于一条明确的配置错误提示。</p>
+     */
+    private Long requireDefaultRoleId() {
+        Role role = roleMapper.selectOne(new LambdaQueryWrapper<Role>()
+                .eq(Role::getRoleCode, DEFAULT_ROLE_CODE));
+        if (role == null) {
+            throw new BizException(ErrorCode.ROLE_NOT_FOUND,
+                    "系统缺少默认角色「普通员工」（" + DEFAULT_ROLE_CODE + "），请先在角色管理中创建后再新增员工");
+        }
+        // 停用不拦：停用角色仍可绑定，只是其菜单权限不生效（见 getMenuCodesByUserId 的过滤），
+        // 这里仅留痕，便于排查「新员工登录后什么都没有」。
+        if (role.getStatus() != null && role.getStatus() != 1) {
+            log.warn("默认角色 {} 当前为停用状态，新员工仍将绑定该角色: roleId={}", DEFAULT_ROLE_CODE, role.getId());
+        }
+        return role.getId();
+    }
+
     private Long createUser(UserSaveRequest request) {
         assertUsernameUnique(request.getUsername(), null);
         String workNumber = resolveWorkNumber(request.getWorkNumber(), request.getDeptId());
@@ -276,8 +306,14 @@ public class UserServiceImpl implements UserService {
         user.setPassword(passwordEncoder.encode(rawPwd));
         user.setStatus(request.getStatus() == null ? 1 : request.getStatus());
         userMapper.insert(user);
-        bindRoles(user.getId(), request.getRoleIds());
-        log.info("新增用户: id={}, username={}, workNumber={}", user.getId(), user.getUsername(), workNumber);
+        // 未指定角色 → 自动绑定「普通员工」。放在服务端而不是只靠前端预选：
+        // 直接调接口（脚本、导入、第三方对接）同样要遵守这条规则，否则会造出无任何权限的账号。
+        List<Long> roleIds = CollectionUtils.isEmpty(request.getRoleIds())
+                ? List.of(requireDefaultRoleId())
+                : request.getRoleIds();
+        bindRoles(user.getId(), roleIds);
+        log.info("新增用户: id={}, username={}, workNumber={}, roles={}",
+                user.getId(), user.getUsername(), workNumber, roleIds);
         return user.getId();
     }
 
@@ -316,9 +352,15 @@ public class UserServiceImpl implements UserService {
         }
         userMapper.updateById(user);
 
-        // 重新绑定角色（先删后插）
-        userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, request.getId()));
-        bindRoles(request.getId(), request.getRoleIds());
+        // 重新绑定角色（先删后插）。留空表示「本次不动角色」而不是「清空」：
+        // 账号没有角色 = 能登录但侧边栏空白、接口全 403，属于不可用状态，
+        // 不该因为一次没带 roleIds 的局部保存而产生。要换角色就显式传（至少一个）。
+        if (CollectionUtils.isEmpty(request.getRoleIds())) {
+            log.info("修改用户未携带角色，保留原有绑定: id={}", request.getId());
+        } else {
+            userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, request.getId()));
+            bindRoles(request.getId(), request.getRoleIds());
+        }
         log.info("修改用户: id={}", request.getId());
         return request.getId();
     }

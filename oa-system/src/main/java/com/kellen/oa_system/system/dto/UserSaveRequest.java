@@ -63,8 +63,14 @@ public class UserSaveRequest {
     /** 入职日期；新增时留空自动取表单提交当日 */
     private LocalDate entryDate;
 
-    @NotNull(message = "请至少分配一个角色")
-    @Size(min = 1, message = "请至少分配一个角色")
+    /**
+     * 角色 id 列表。
+     *
+     * <p><b>新增</b>时留空（null / 空数组）由系统默认绑定「普通员工」（EMPLOYEE），
+     * 之后由管理员在编辑员工时追加；<b>编辑</b>时留空表示「本次不改动角色」，
+     * 不会被清空——任何账号至少要有一个角色才能正常使用。</p>
+     */
+    @Size(max = 20, message = "角色数量不能超过 20")
     private List<Long> roleIds;
 
     @Size(min = 6, max = 20, message = "密码长度需为 6-20 位")
