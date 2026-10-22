@@ -43,8 +43,14 @@ async function handleLogin() {
     // 不能硬编码 `/dashboard`：工作台的菜单权限是按角色下发的，
     // 没有该权限的角色会被导向 404。
     const rawRedirect = route.query.redirect;
+    // 只接受站内绝对路径：`https://evil`、`//evil.com`、`javascript:` 一律丢弃并回落到首页，
+    // 否则 router.push 会把外站地址当路径解析，最终落到 /404（既不是跳转也不是正常落地）。
     const redirect =
-      typeof rawRedirect === "string" && rawRedirect ? rawRedirect : "/";
+      typeof rawRedirect === "string" &&
+      rawRedirect.startsWith("/") &&
+      !rawRedirect.startsWith("//")
+        ? rawRedirect
+        : "/";
 
     // 必须 await：router.push 是异步的，若不等它完成就复位开关，会出现
     // 「登录请求已返回、页面尚未跳走」的窗口期——用户在该窗口内再次点击会
