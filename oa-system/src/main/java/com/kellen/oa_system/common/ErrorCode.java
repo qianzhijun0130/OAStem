@@ -107,6 +107,27 @@ public enum ErrorCode {
     FILE_UPLOAD_FAILED(4005, "文件上传失败，请稍后重试"),
     FILE_PATH_INVALID(4006, "文件路径非法"),
 
+    // ---------- 业务错误：人力资源 6xxx ----------
+    // 61xx 组织与员工档案
+    HR_POSITION_CODE_DUPLICATE(6101, "岗位编码已存在"),
+    HR_POSITION_IN_USE(6102, "该岗位下有在职员工，请先调岗"),
+    HR_EMPLOYMENT_STATUS_INVALID(6103, "任职状态不允许该跳转"),
+    HR_CONTRACT_DATE_OVERLAP(6104, "合同起止时间与已有合同重叠"),
+    HR_EMPLOYEE_DUPLICATE(6105, "手机号或身份证已存在员工档案"),
+    HR_POSITION_NOT_FOUND(6106, "岗位不存在或已被删除"),
+    // 62xx 考勤
+    HR_ATTENDANCE_NOT_SCHEDULED(6201, "该日期未排班，无法生成考勤"),
+    HR_CARD_SUPPLEMENT_EXPIRED(6202, "补卡只允许回溯 30 天"),
+    HR_CARD_SUPPLEMENT_LIMIT(6203, "本月补卡次数已达上限"),
+    HR_ATTENDANCE_SETTLED(6204, "该日期已日结，不可直接修改"),
+    HR_ATTENDANCE_LOCKED(6205, "该月已封账，需超级管理员解封"),
+    HR_ATTENDANCE_ALREADY_CLOCKED(6206, "今日已完成该方向的打卡"),
+    // 63xx 假勤
+    HR_LEAVE_QUOTA_NOT_ENOUGH(6301, "该假别可用额度不足"),
+    HR_LEAVE_TIME_OVERLAP(6302, "与已有请假单时间重叠"),
+    HR_LEAVE_CANCEL_NOT_ALLOWED(6303, "仅已通过的请假单可销假，且只能销假一次"),
+    HR_SCHEDULE_INVALID(6304, "排班日期或班次不合法"),
+
     // ---------- 系统错误 5xxx ----------
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
 

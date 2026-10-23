@@ -1063,3 +1063,325 @@ export interface NodeFieldPermissionSaveRequest {
   formId: number
   fields: Array<{ prop: string; fieldLabel?: string; permission: FieldPermission }>
 }
+
+/* ========== 人力资源：岗位 / 员工档案 / 考勤 ========== */
+
+export interface PositionVO {
+  id: number
+  positionCode: string
+  positionName: string
+  companyId: number
+  deptId: number
+  deptName?: string
+  series: string
+  levelCode?: string
+  headcount: number
+  onDutyCount: number
+  overHeadcount: boolean
+  description?: string
+  status: number
+  sort: number
+  createTime?: string
+}
+
+export interface PositionSaveRequest {
+  id?: number
+  positionCode: string
+  positionName: string
+  deptId?: number
+  series?: string
+  levelCode?: string
+  headcount?: number
+  description?: string
+  status?: number
+  sort?: number
+}
+
+export interface EmployeeVO {
+  id: number
+  username: string
+  realName: string
+  gender?: number
+  mobile?: string
+  email?: string
+  companyId?: number
+  deptId?: number
+  deptName?: string
+  positionId?: number
+  positionName?: string
+  position?: string
+  workNumber?: string
+  entryDate?: string
+  /** 司龄，如「2.3 年」 */
+  seniority?: string
+  employmentStatus: number
+  employmentStatusLabel?: string
+  directLeaderName?: string
+  status: number
+  createTime?: string
+}
+
+export interface EmployeePageQuery {
+  keyword?: string
+  deptId?: number
+  positionId?: number
+  employmentStatus?: number
+  entryDateStart?: string
+  entryDateEnd?: string
+  pageNo?: number
+  pageSize?: number
+}
+
+export interface ContractVO {
+  id: number
+  contractNo: string
+  contractType: number
+  contractTypeLabel?: string
+  startDate: string
+  endDate?: string
+  signCount: number
+  signDate?: string
+  fileIds?: string
+  status: number
+  daysToExpire?: number
+}
+
+export interface CertVO {
+  id: number
+  certType: number
+  certTypeLabel?: string
+  certName: string
+  certNo?: string
+  issueOrg?: string
+  issueDate?: string
+  expireDate?: string
+  fileIds?: string
+  daysToExpire?: number
+}
+
+export interface ChangeVO {
+  id: number
+  changeType: number
+  changeTypeLabel?: string
+  effectiveDate: string
+  beforeJson?: string
+  afterJson?: string
+  instanceId?: number
+  remark?: string
+  operatorName?: string
+  createTime?: string
+}
+
+export interface EmployeeDetailVO {
+  id: number
+  username: string
+  realName: string
+  nickname?: string
+  avatar?: string
+  gender?: number
+  mobile?: string
+  email?: string
+  companyId?: number
+  deptId?: number
+  deptName?: string
+  positionId?: number
+  positionName?: string
+  position?: string
+  workNumber?: string
+  entryDate?: string
+  seniority?: string
+  employmentStatus: number
+  employmentStatusLabel?: string
+  directLeaderId?: number
+  directLeaderName?: string
+  status: number
+  lastLoginTime?: string
+  createTime?: string
+  idCard?: string
+  birthDate?: string
+  maritalStatus?: number
+  nativePlace?: string
+  address?: string
+  emergencyName?: string
+  emergencyPhone?: string
+  workStartDate?: string
+  probationEndDate?: string
+  bankName?: string
+  bankAccount?: string
+  socialNo?: string
+  fundNo?: string
+  contracts: ContractVO[]
+  certs: CertVO[]
+  changes: ChangeVO[]
+  canViewSensitive: boolean
+}
+
+export interface EmployeeProfileRequest {
+  employmentStatus?: number
+  changeRemark?: string
+  positionId?: number
+  directLeaderId?: number
+  workStartDate?: string
+  probationEndDate?: string
+  idCard?: string
+  birthDate?: string
+  maritalStatus?: number
+  nativePlace?: string
+  address?: string
+  emergencyName?: string
+  emergencyPhone?: string
+  mobile?: string
+  email?: string
+  bankName?: string
+  bankAccount?: string
+  socialNo?: string
+  fundNo?: string
+}
+
+export interface ContractSaveRequest {
+  id?: number
+  contractNo: string
+  contractType?: number
+  startDate: string
+  endDate?: string
+  signDate?: string
+  fileIds?: string
+  remark?: string
+  renew?: boolean
+}
+
+export interface CertSaveRequest {
+  id?: number
+  certType: number
+  certName: string
+  certNo?: string
+  issueOrg?: string
+  issueDate?: string
+  expireDate?: string
+  fileIds?: string
+  remark?: string
+}
+
+export interface ShiftVO {
+  id: number
+  shiftCode: string
+  shiftName: string
+  workStart: string
+  workEnd: string
+  restMinutes: number
+  lateGrace: number
+  earlyGrace: number
+  flexible: number
+  freeClock: number
+  status: number
+  standardHours?: string
+  scheduleCount?: number
+}
+
+export interface ShiftSaveRequest {
+  id?: number
+  shiftCode: string
+  shiftName: string
+  workStart: string
+  workEnd: string
+  restMinutes?: number
+  lateGrace?: number
+  earlyGrace?: number
+  flexible?: number
+  freeClock?: number
+  status?: number
+}
+
+export interface ScheduleBatchRequest {
+  deptId: number
+  month: string
+  shiftId: number
+  includeWeekend?: number
+  overwrite?: number
+}
+
+export interface ScheduleVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  scheduleDate: string
+  shiftId?: number
+  shiftName?: string
+  dayType: number
+  settled: number
+}
+
+export interface AttendanceVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptId?: number
+  deptName?: string
+  attendanceDate: string
+  checkInTime?: string
+  checkOutTime?: string
+  checkInLocation?: string
+  checkOutLocation?: string
+  workDuration?: number
+  attendanceStatus: number
+  attendanceStatusLabel?: string
+  lateMinutes?: number
+  earlyMinutes?: number
+  cardMissing?: number
+  shiftName?: string
+  settled?: number
+  remark?: string
+}
+
+export interface AttendancePageQuery {
+  month?: string
+  deptId?: number
+  userId?: number
+  attendanceStatus?: number
+  keyword?: string
+  pageNo?: number
+  pageSize?: number
+}
+
+export interface AttendanceMonthVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptId?: number
+  deptName?: string
+  month: string
+  shouldDays: number
+  actualDays: number
+  lateCount: number
+  earlyCount: number
+  absentDays: number
+  missingCount: number
+  tripDays: number
+  status: number
+  lockTime?: string
+}
+
+export interface TodayAttendanceVO {
+  date: string
+  scheduled: boolean
+  shiftName?: string
+  workStart?: string
+  workEnd?: string
+  checkInTime?: string
+  checkOutTime?: string
+  attendanceStatus?: number
+  attendanceStatusLabel?: string
+  lateMinutes?: number
+  earlyMinutes?: number
+  workedMinutes?: number
+  canClockIn: boolean
+  canClockOut: boolean
+}
+
+export interface ClockRequest {
+  direction: 1 | 2
+  location?: string
+}
