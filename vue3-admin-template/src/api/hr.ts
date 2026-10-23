@@ -26,6 +26,16 @@ import type {
   LeaveSubmitRequest,
   LeaveVO,
   QuotaAdjustRequest,
+  SalaryAdjustPayload,
+  SalaryItemSaveRequest,
+  SalaryItemVO,
+  SalaryPageQuery,
+  SalaryPayslipVO,
+  SalaryProfileSaveRequest,
+  SalaryProfileVO,
+  SalaryRecordVO,
+  SocialPolicySaveRequest,
+  SocialPolicyVO,
 } from './types'
 
 /* ==================== 岗位 ==================== */
@@ -186,6 +196,15 @@ export function cancelLeaveApi(id: number) {
   return request<null>({ url: `/hr/leave/${id}/cancel`, method: 'post' })
 }
 
+/** 销假（提前返岗）：登记实际返岗日期，差额额度由后端退回 */
+export function returnLeaveApi(id: number, returnDate: string, remark?: string) {
+  return request<null>({
+    url: `/hr/leave/${id}/return`,
+    method: 'put',
+    params: { returnDate, remark },
+  })
+}
+
 export function getLeavePageApi(params: LeavePageQuery) {
   return request<PageResult<LeaveVO>>({ url: '/hr/leave/page', method: 'get', params })
 }
@@ -214,4 +233,90 @@ export function getHrRequestPageApi(params: {
   pageSize?: number
 }) {
   return request<PageResult<HrRequestVO>>({ url: '/hr/request/page', method: 'get', params })
+}
+
+/* ==================== 考勤月度汇总导出 ==================== */
+
+export function exportAttendanceMonthApi(params: { month: string; deptId?: number }) {
+  return request<Blob>({
+    url: '/hr/attendance/month/export',
+    method: 'get',
+    params,
+    responseType: 'blob',
+  })
+}
+
+/* ==================== 薪酬 ==================== */
+
+export function listSalaryItemsApi() {
+  return request<SalaryItemVO[]>({ url: '/hr/salary/items', method: 'get' })
+}
+
+export function saveSalaryItemApi(data: SalaryItemSaveRequest) {
+  return request<number>({ url: '/hr/salary/items', method: 'post', data })
+}
+
+export function deleteSalaryItemApi(id: number) {
+  return request<null>({ url: `/hr/salary/items/${id}`, method: 'delete' })
+}
+
+export function listSocialPoliciesApi(year?: number) {
+  return request<SocialPolicyVO[]>({ url: '/hr/salary/policies', method: 'get', params: { year } })
+}
+
+export function saveSocialPolicyApi(data: SocialPolicySaveRequest) {
+  return request<number>({ url: '/hr/salary/policies', method: 'post', data })
+}
+
+export function deleteSocialPolicyApi(id: number) {
+  return request<null>({ url: `/hr/salary/policies/${id}`, method: 'delete' })
+}
+
+export function getSalaryProfilePageApi(params: {
+  keyword?: string
+  deptId?: number
+  pageNo?: number
+  pageSize?: number
+}) {
+  return request<PageResult<SalaryProfileVO>>({ url: '/hr/salary/profiles', method: 'get', params })
+}
+
+export function saveSalaryProfileApi(data: SalaryProfileSaveRequest) {
+  return request<number>({ url: '/hr/salary/profiles', method: 'post', data })
+}
+
+export function getSalaryProfileHistoryApi(userId: number) {
+  return request<SalaryProfileVO[]>({ url: `/hr/salary/profiles/${userId}/history`, method: 'get' })
+}
+
+export function calcSalaryApi(params: { month: string; deptId?: number }) {
+  return request<number>({ url: '/hr/salary/calc', method: 'post', params })
+}
+
+export function getSalaryRecordPageApi(params: SalaryPageQuery) {
+  return request<PageResult<SalaryRecordVO>>({ url: '/hr/salary/records', method: 'get', params })
+}
+
+export function getSalaryRecordDetailApi(id: number) {
+  return request<SalaryPayslipVO>({ url: `/hr/salary/records/${id}`, method: 'get' })
+}
+
+export function adjustSalaryApi(id: number, data: SalaryAdjustPayload) {
+  return request<null>({ url: `/hr/salary/records/${id}/adjust`, method: 'put', data })
+}
+
+export function reviewSalaryApi(params: { month: string; deptId?: number }) {
+  return request<number>({ url: '/hr/salary/review', method: 'post', params })
+}
+
+export function lockSalaryApi(params: { month: string; deptId?: number }) {
+  return request<number>({ url: '/hr/salary/lock', method: 'post', params })
+}
+
+export function paySalaryApi(params: { month: string; deptId?: number }) {
+  return request<number>({ url: '/hr/salary/pay', method: 'post', params })
+}
+
+export function getMyPayslipsApi(year?: number) {
+  return request<SalaryPayslipVO[]>({ url: '/hr/salary/my', method: 'get', params: { year } })
 }

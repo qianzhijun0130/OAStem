@@ -56,6 +56,7 @@ import {
   Ticket,
   Trash2,
   Upload,
+  Wallet,
   Users,
   User,
   UserRound,
@@ -133,6 +134,7 @@ export const LUCIDE_ICONS: Record<string, Component> = {
   User,
   UserRound,
   Users,
+  Wallet,
   Workflow,
   X,
 }

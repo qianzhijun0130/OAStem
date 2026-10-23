@@ -1360,6 +1360,13 @@ export interface AttendanceMonthVO {
   absentDays: number
   missingCount: number
   tripDays: number
+  /** 假别明细原文（JSON），后端已按假别汇总 */
+  leaveDaysJson?: string
+  /** 假别明细展示文本，如「年假 2 天 · 病假 1 天」 */
+  leaveDaysText?: string
+  /** 加班时数原文（JSON，按工作日/休息日/节假日分档） */
+  overtimeJson?: string
+  overtimeText?: string
   status: number
   lockTime?: string
 }
@@ -1506,4 +1513,169 @@ export interface HrRequestSaveRequest {
   direction?: number
   cardTime?: string
   reason?: string
+}
+
+/* ========== 人力资源：薪酬 ========== */
+
+export interface SalaryItemVO {
+  id: number
+  itemCode: string
+  itemName: string
+  itemType: number
+  includeSocial: number
+  includeTax: number
+  editable: number
+  sort: number
+  status: number
+  remark?: string
+}
+
+export interface SalaryItemSaveRequest {
+  id?: number
+  itemCode: string
+  itemName: string
+  itemType?: number
+  includeSocial?: number
+  includeTax?: number
+  editable?: number
+  sort?: number
+  status?: number
+  remark?: string
+}
+
+export interface SocialPolicyVO {
+  id: number
+  city: string
+  policyYear: number
+  baseMin: number
+  baseMax: number
+  fundBaseMin: number
+  fundBaseMax: number
+  pensionPersonal: number
+  pensionCompany: number
+  medicalPersonal: number
+  medicalCompany: number
+  unemploymentPersonal: number
+  unemploymentCompany: number
+  injuryCompany: number
+  maternityCompany: number
+  fundPersonal: number
+  fundCompany: number
+  personalRateTotal: number
+  remark?: string
+}
+
+export type SocialPolicySaveRequest = Omit<SocialPolicyVO, 'id' | 'personalRateTotal'> & { id?: number }
+
+export interface SalaryProfileVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptId?: number
+  deptName?: string
+  effectiveDate: string
+  baseSalary: number
+  postSalary: number
+  perfSalary: number
+  allowance: number
+  standardSalary: number
+  socialBase?: number
+  fundBase?: number
+  city?: string
+  specialDeduct: number
+  changeReason?: string
+  createTime?: string
+}
+
+export interface SalaryProfileSaveRequest {
+  userId: number
+  effectiveDate: string
+  baseSalary?: number
+  postSalary?: number
+  perfSalary?: number
+  allowance?: number
+  socialBase?: number
+  fundBase?: number
+  city?: string
+  specialDeduct?: number
+  changeReason?: string
+}
+
+export interface SalaryRecordVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptId?: number
+  deptName?: string
+  month: string
+  grossPay: number
+  attendanceDeduct: number
+  socialPersonal: number
+  fundPersonal: number
+  tax: number
+  otherDeduct: number
+  netPay: number
+  companyCost: number
+  status: number
+  statusLabel: string
+  calcTime?: string
+  payTime?: string
+}
+
+export interface SalaryItemLineVO {
+  itemCode: string
+  itemName: string
+  itemType: number
+  amount: number
+}
+
+export interface SalaryPayslipVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptName?: string
+  month: string
+  baseSalary: number
+  postSalary: number
+  perfSalary: number
+  allowance: number
+  overtimePay: number
+  otherIncome: number
+  grossPay: number
+  attendanceDeduct: number
+  socialPersonal: number
+  fundPersonal: number
+  tax: number
+  otherDeduct: number
+  netPay: number
+  socialCompany: number
+  fundCompany: number
+  socialBase: number
+  cumulativeTaxable: number
+  specialDeduct: number
+  status: number
+  statusLabel: string
+  remark?: string
+  calcTime?: string
+  payTime?: string
+  items: SalaryItemLineVO[]
+}
+
+/** 手工调整：两个金额都可只传一个，未传的保持不变 */
+export interface SalaryAdjustPayload {
+  otherIncome?: number
+  otherDeduct?: number
+  remark: string
+}
+
+export interface SalaryPageQuery {
+  month?: string
+  deptId?: number
+  status?: number
+  keyword?: string
+  pageNo?: number
+  pageSize?: number
 }
