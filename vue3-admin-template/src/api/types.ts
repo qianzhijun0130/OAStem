@@ -1385,3 +1385,125 @@ export interface ClockRequest {
   direction: 1 | 2
   location?: string
 }
+
+/* ========== 人力资源：假勤（额度 / 请假 / 加班 / 出差 / 补卡） ========== */
+
+export interface LeaveQuotaVO {
+  id: number
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptId?: number
+  deptName?: string
+  leaveType: number
+  leaveTypeLabel?: string
+  year: number
+  totalDays: number
+  carryOverDays: number
+  usedDays: number
+  lockedDays: number
+  availableDays: number
+  expireDate?: string
+  remark?: string
+}
+
+export interface QuotaAdjustRequest {
+  userId: number
+  leaveType: number
+  year: number
+  totalDays: number
+  carryOverDays?: number
+  remark: string
+}
+
+export interface LeaveVO {
+  id: number
+  billCode?: string
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptId?: number
+  deptName?: string
+  leaveType: number
+  leaveTypeLabel?: string
+  startTime: string
+  endTime: string
+  leaveDays: number
+  actualDays?: number
+  returnDate?: string
+  reason?: string
+  attachmentIds?: string
+  instanceId?: number
+  leaveStatus: number
+  leaveStatusLabel?: string
+  cancelStatus: number
+  canCancel: boolean
+  createTime?: string
+}
+
+export interface LeavePageQuery {
+  month?: string
+  userId?: number
+  deptId?: number
+  leaveStatus?: number
+  leaveType?: number
+  keyword?: string
+  pageNo?: number
+  pageSize?: number
+}
+
+export interface LeaveSubmitRequest {
+  leaveType: number
+  startTime: string
+  endTime: string
+  leaveDays?: number
+  reason?: string
+  attachmentIds?: string
+}
+
+export interface HrRequestVO {
+  id: number
+  billCode?: string
+  bizType: number
+  bizTypeLabel?: string
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptName?: string
+  bizDate?: string
+  startDate?: string
+  endDate?: string
+  startTime?: string
+  endTime?: string
+  destination?: string
+  hours?: number
+  days?: number
+  budget?: number
+  overtimeType?: number
+  compensateType?: number
+  direction?: number
+  reason?: string
+  instanceId?: number
+  status: number
+  statusLabel?: string
+  canCancel: boolean
+  createTime?: string
+}
+
+export interface HrRequestSaveRequest {
+  bizType: number
+  overtimeType?: number
+  overtimeDate?: string
+  compensateType?: number
+  startTime?: string
+  endTime?: string
+  hours?: number
+  destination?: string
+  startDate?: string
+  endDate?: string
+  budget?: number
+  cardDate?: string
+  direction?: number
+  cardTime?: string
+  reason?: string
+}

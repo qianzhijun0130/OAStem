@@ -19,6 +19,13 @@ import type {
   ShiftSaveRequest,
   ShiftVO,
   TodayAttendanceVO,
+  HrRequestSaveRequest,
+  HrRequestVO,
+  LeavePageQuery,
+  LeaveQuotaVO,
+  LeaveSubmitRequest,
+  LeaveVO,
+  QuotaAdjustRequest,
 } from './types'
 
 /* ==================== 岗位 ==================== */
@@ -155,4 +162,56 @@ export function lockAttendanceMonthApi(month: string) {
 
 export function unlockAttendanceMonthApi(month: string, reason: string) {
   return request<null>({ url: '/hr/attendance/unlock', method: 'post', params: { month, reason } })
+}
+
+/* ==================== 假勤：额度与请假 ==================== */
+
+export function getLeaveQuotaApi(params: { year?: number; deptId?: number }) {
+  return request<LeaveQuotaVO[]>({ url: '/hr/leave/quota', method: 'get', params })
+}
+
+export function getMyLeaveQuotaApi(year?: number) {
+  return request<LeaveQuotaVO[]>({ url: '/hr/leave/quota/my', method: 'get', params: { year } })
+}
+
+export function adjustLeaveQuotaApi(data: QuotaAdjustRequest) {
+  return request<null>({ url: '/hr/leave/quota/adjust', method: 'post', data })
+}
+
+export function submitLeaveApi(data: LeaveSubmitRequest) {
+  return request<number>({ url: '/hr/leave', method: 'post', data })
+}
+
+export function cancelLeaveApi(id: number) {
+  return request<null>({ url: `/hr/leave/${id}/cancel`, method: 'post' })
+}
+
+export function getLeavePageApi(params: LeavePageQuery) {
+  return request<PageResult<LeaveVO>>({ url: '/hr/leave/page', method: 'get', params })
+}
+
+export function getMyLeaveApi(leaveStatus?: number) {
+  return request<LeaveVO[]>({ url: '/hr/leave/my', method: 'get', params: { leaveStatus } })
+}
+
+/* ==================== 假勤：加班 / 出差 / 补卡 ==================== */
+
+export function submitHrRequestApi(data: HrRequestSaveRequest) {
+  return request<number>({ url: '/hr/request', method: 'post', data })
+}
+
+export function cancelHrRequestApi(bizType: number, id: number) {
+  return request<null>({ url: `/hr/request/${bizType}/${id}/cancel`, method: 'post' })
+}
+
+export function getHrRequestPageApi(params: {
+  bizType: number
+  month?: string
+  deptId?: number
+  status?: number
+  keyword?: string
+  pageNo?: number
+  pageSize?: number
+}) {
+  return request<PageResult<HrRequestVO>>({ url: '/hr/request/page', method: 'get', params })
 }

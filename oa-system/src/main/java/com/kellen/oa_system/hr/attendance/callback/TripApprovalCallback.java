@@ -1,0 +1,67 @@
+package com.kellen.oa_system.hr.attendance.callback;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.kellen.oa_system.hr.attendance.entity.BusinessTrip;
+import com.kellen.oa_system.hr.attendance.mapper.BusinessTripMapper;
+import com.kellen.oa_system.workflow.callback.ApprovalCallback;
+import com.kellen.oa_system.workflow.entity.ApprovalInstance;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.Objects;
+
+/**
+ * 出差审批终态回写（只改业务状态）。
+ *
+ * <p>出差期间的考勤由日结体现（排班仍在该时段时，日结看到的是当天实际打卡情况）。
+ * 「出差期间免打卡」需要把出差区间展开成逐日考勤记录，属于 P1 与考勤结算联动的部分，
+ * 本期不改写考勤明细，避免出现「出差单没批就把人算成全勤」的情况。</p>
+ */
+@Component
+@RequiredArgsConstructor
+public class TripApprovalCallback implements ApprovalCallback {
+
+    public static final String FLOW_CODE = "HR_TRIP";
+
+    private static final int STATUS_APPROVING = 1;
+
+    private final BusinessTripMapper tripMapper;
+
+    @Override
+    public String flowCode() {
+        return FLOW_CODE;
+    }
+
+    @Override
+    public void onApproved(ApprovalInstance instance) {
+        finish(instance, 2);
+    }
+
+    @Override
+    public void onRejected(ApprovalInstance instance) {
+        finish(instance, 3);
+    }
+
+    @Override
+    public void onCancelled(ApprovalInstance instance) {
+        finish(instance, 4);
+    }
+
+    @Override
+    public void onTerminated(ApprovalInstance instance) {
+        finish(instance, 4);
+    }
+
+    private void finish(ApprovalInstance instance, int status) {
+        BusinessTrip trip = tripMapper.selectOne(new LambdaQueryWrapper<BusinessTrip>()
+                .eq(BusinessTrip::getInstanceId, instance.getId())
+                .last("LIMIT 1"));
+        if (trip == null || !Objects.equals(trip.getTripStatus(), STATUS_APPROVING)) {
+            return;
+        }
+        BusinessTrip patch = new BusinessTrip();
+        patch.setId(trip.getId());
+        patch.setTripStatus(status);
+        tripMapper.updateById(patch);
+    }
+}

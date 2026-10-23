@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  内置样例：补卡申请。
+  审批人约定（详见 BpmnXmlParser）：
+    flowable:candidateGroups="leader" → 部门主管（取发起人所在部门的负责人）
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://oastem.com/bpmn"
+             exporter="OAStem" exporterVersion="1.0">
+  <process id="card" name="补卡申请" isExecutable="true">
+    <startEvent id="startEvent" name="发起申请"/>
+    <userTask id="deptLeaderAudit" name="部门主管审批" flowable:candidateGroups="leader"/>
+    <endEvent id="endApproved" name="审批通过"/>
+
+    <sequenceFlow id="flowStart" sourceRef="startEvent" targetRef="deptLeaderAudit"/>
+    <sequenceFlow id="flowFinish" sourceRef="deptLeaderAudit" targetRef="endApproved"/>
+  </process>
+
+  <bpmndi:BPMNDiagram id="diagram_card">
+    <bpmndi:BPMNPlane id="plane_card" bpmnElement="card">
+      <bpmndi:BPMNShape id="shape_startEvent" bpmnElement="startEvent">
+        <dc:Bounds x="180" y="200" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_deptLeaderAudit" bpmnElement="deptLeaderAudit">
+        <dc:Bounds x="270" y="178" width="120" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endApproved" bpmnElement="endApproved">
+        <dc:Bounds x="450" y="200" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="edge_flowStart" bpmnElement="flowStart">
+        <di:waypoint x="216" y="218"/>
+        <di:waypoint x="270" y="218"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowFinish" bpmnElement="flowFinish">
+        <di:waypoint x="390" y="218"/>
+        <di:waypoint x="450" y="218"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

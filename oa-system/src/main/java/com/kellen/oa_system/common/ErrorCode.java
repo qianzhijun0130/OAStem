@@ -122,11 +122,18 @@ public enum ErrorCode {
     HR_ATTENDANCE_SETTLED(6204, "该日期已日结，不可直接修改"),
     HR_ATTENDANCE_LOCKED(6205, "该月已封账，需超级管理员解封"),
     HR_ATTENDANCE_ALREADY_CLOCKED(6206, "今日已完成该方向的打卡"),
+    HR_FLOW_NOT_DEPLOYED(6207, "该审批流程尚未发布，请先在「流程管理 → 流程模板」发布后再发起"),
     // 63xx 假勤
     HR_LEAVE_QUOTA_NOT_ENOUGH(6301, "该假别可用额度不足"),
     HR_LEAVE_TIME_OVERLAP(6302, "与已有请假单时间重叠"),
     HR_LEAVE_CANCEL_NOT_ALLOWED(6303, "仅已通过的请假单可销假，且只能销假一次"),
     HR_SCHEDULE_INVALID(6304, "排班日期或班次不合法"),
+    HR_LEAVE_POLICY_EXCEEDED(6305, "请假天数超出该假别的法定上限"),
+    HR_LEAVE_DAYS_INVALID(6306, "请假天数不合法：至少 0.5 天，且结束时间必须晚于开始时间"),
+    HR_LEAVE_ATTACHMENT_REQUIRED(6307, "病假 3 天以上必须上传诊断证明"),
+    HR_OVERTIME_EXCEED_LIMIT(6308, "单月加班不得超过 36 小时"),
+    HR_TRIP_LEAVE_CONFLICT(6309, "出差时间与已有请假时间冲突"),
+    HR_CARD_ALREADY_EXISTS(6310, "该日期该方向已有补卡记录"),
 
     // ---------- 系统错误 5xxx ----------
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
