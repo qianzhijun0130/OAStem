@@ -29,4 +29,15 @@ public interface LeaveService {
 
     /** 详情（本人 / 直属上级 / HR 可见） */
     LeaveVO detail(Long leaveId);
+
+    /**
+     * 销假（提前返岗登记）。
+     *
+     * <p>只允许对「已通过」且「未销假」的请假单操作一次，按实际休假天数退回差额额度。
+     * 销假是<b>事实登记</b>而不是诉求，因此不另起审批流——多一道审批只会让「人已经回来上班了、
+     * 系统里还在休假」的状态拖得更久。</p>
+     *
+     * @param returnDate 实际返岗日期（须晚于请假开始日、不晚于请假结束日）
+     */
+    void returnFromLeave(Long leaveId, java.time.LocalDate returnDate, String remark);
 }

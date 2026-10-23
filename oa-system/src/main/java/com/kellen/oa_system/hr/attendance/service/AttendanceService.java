@@ -81,4 +81,20 @@ public interface AttendanceService {
 
     /** 解封（仅超管，需填写原因） */
     void unlockMonth(String month, String reason);
+
+    /**
+     * 作废某人在指定区间内「因请假产生」的考勤记录，并把排班标记为未结算。
+     *
+     * <p>销假（提前返岗）后调用：返岗日之后这个人已经正常上班，之前按请假算出来的
+     * 假勤记录必须作废，否则月汇总里会同时出现「休假天数」与「已返岗」两份矛盾数据。
+     * 只动「状态为假勤且没有任何打卡」的行——有打卡说明当天确实来过，
+     * 属于人工确认过的事实，不能因为销假被抹掉。</p>
+     *
+     * @return 被作废的天数
+     */
+    int resettleLeaveRange(Long userId, java.time.LocalDate from, java.time.LocalDate to);
+
+    /** 导出月度汇总：扣款依据要给财务签字，不能只留在页面上 */
+    void exportMonth(String month, Long deptId, jakarta.servlet.http.HttpServletResponse response);
+
 }

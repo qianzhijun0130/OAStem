@@ -9,6 +9,7 @@ import com.kellen.oa_system.common.annotation.DataScope;
 import com.kellen.oa_system.common.util.ExcelExportUtil;
 import com.kellen.oa_system.hr.common.enums.EmploymentStatusEnum;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
+import com.kellen.oa_system.hr.common.support.HrRoles;
 import com.kellen.oa_system.hr.common.support.SensitiveMask;
 import com.kellen.oa_system.hr.employee.dto.CertSaveRequest;
 import com.kellen.oa_system.hr.employee.dto.ContractSaveRequest;
@@ -68,7 +69,6 @@ import java.util.stream.Collectors;
 public class EmployeeServiceImpl implements EmployeeService {
 
     /** 可见敏感原文的角色 */
-    private static final Set<String> SENSITIVE_ROLES = Set.of("SUPER_ADMIN", "HR", "HR_MANAGER");
 
     private static final List<Integer> ON_DUTY = List.of(2, 3, 4);
 
@@ -598,7 +598,7 @@ public class EmployeeServiceImpl implements EmployeeService {
      */
     private void assertCanView(User target) {
         LoginUser current = SecurityContextUtil.getCurrentUser();
-        if (current.getRoles().stream().anyMatch(SENSITIVE_ROLES::contains)) {
+        if (HrRoles.isHr(current.getRoles())) {
             return;
         }
         if (Objects.equals(current.getUserId(), target.getId())) {
@@ -612,14 +612,14 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     private void assertCanEdit(User target) {
         LoginUser current = SecurityContextUtil.getCurrentUser();
-        if (current.getRoles().stream().anyMatch(SENSITIVE_ROLES::contains)) {
+        if (HrRoles.isHr(current.getRoles())) {
             return;
         }
         throw new BizException(ErrorCode.FORBIDDEN, "仅人事或超级管理员可以维护员工档案");
     }
 
     private boolean canViewSensitive() {
-        return SecurityContextUtil.getCurrentUser().getRoles().stream().anyMatch(SENSITIVE_ROLES::contains);
+        return HrRoles.isHr();
     }
 
     private void writeChange(Long userId, int changeType, LocalDate effectiveDate,

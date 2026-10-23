@@ -6,7 +6,9 @@ import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
+import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
+import com.kellen.oa_system.hr.common.support.HrRoles;
 import com.kellen.oa_system.hr.leave.dto.LeavePageQuery;
 import com.kellen.oa_system.hr.leave.dto.LeaveSubmitRequest;
 import com.kellen.oa_system.hr.leave.entity.Leave;
@@ -66,6 +68,9 @@ public class LeaveServiceImpl implements LeaveService {
     private static final int STATUS_REJECTED = 3;
     private static final int STATUS_CANCELLED = 4;
 
+    /** 销假状态：0 未销假 / 2 已销假（1「审批中」保留给后续接审批流时用） */
+    private static final int STATUS_CANCEL_DONE = 2;
+
     /** 需要额度校验的假别：年假、调休 */
     private static final Set<Integer> QUOTA_TYPES = Set.of(3, 8);
     /** 按地方政策限制天数的假别：婚假、产假、陪产假、丧假 */
@@ -86,6 +91,7 @@ public class LeaveServiceImpl implements LeaveService {
     private final DepartmentMapper departmentMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
     private final ObjectMapper objectMapper;
+    private final AttendanceService attendanceService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -183,6 +189,53 @@ public class LeaveServiceImpl implements LeaveService {
         leave.setLeaveStatus(STATUS_CANCELLED);
         leaveMapper.updateById(leave);
         releaseQuota(leave);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void returnFromLeave(Long leaveId, LocalDate returnDate, String remark) {
+        Leave leave = requireLeave(leaveId);
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        boolean self = Objects.equals(leave.getUserId(), currentUserId);
+        if (!self && !HrRoles.isHr()) {
+            throw new BizException(ErrorCode.FORBIDDEN, "只能销本人的请假单");
+        }
+        if (!Objects.equals(leave.getLeaveStatus(), STATUS_PASSED)) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "仅已通过的请假单可以销假");
+        }
+        // 一对一、只允许一次：重复销假会让额度退两次
+        if (leave.getCancelStatus() != null && leave.getCancelStatus() != 0) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "该请假单已销假，不能重复操作");
+        }
+        LocalDate startDate = leave.getStartTime().toLocalDate();
+        LocalDate endDate = leave.getEndTime().toLocalDate();
+        if (returnDate == null || !returnDate.isAfter(startDate) || returnDate.isAfter(endDate.plusDays(1))) {
+            throw new BizException(ErrorCode.BAD_REQUEST,
+                    "返岗日期须晚于请假开始日 " + startDate + " 且不晚于 " + endDate.plusDays(1));
+        }
+        // 实际休假天数：开始日到返岗日前一天
+        BigDecimal actual = BigDecimal.valueOf(
+                Duration.between(startDate.atStartOfDay(), returnDate.atStartOfDay()).toDays());
+        if (actual.compareTo(leave.getLeaveDays()) > 0) {
+            actual = leave.getLeaveDays();
+        }
+        BigDecimal refund = leave.getLeaveDays().subtract(actual);
+
+        leave.setActualDays(actual);
+        leave.setReturnDate(returnDate);
+        leave.setCancelStatus(STATUS_CANCEL_DONE);
+        leaveMapper.updateById(leave);
+
+        if (QUOTA_TYPES.contains(leave.getLeaveType()) && refund.compareTo(BigDecimal.ZERO) > 0) {
+            // 已通过时扣的是 used_days，销假退回的也是 used_days（不是 locked）
+            quotaService.refund(leave.getUserId(), leave.getLeaveType(),
+                    leave.getStartTime().getYear(), refund);
+        }
+        // 提前返岗后，返岗日之后原本被标成「假勤」的考勤记录必须作废重算，
+        // 否则月汇总里那个人会同时有「休假天数」与「已返岗」两份数据
+        attendanceService.resettleLeaveRange(leave.getUserId(), returnDate, endDate);
+        log.info("销假完成: leaveId={} 原天数={} 实际={} 退回={} 备注={}",
+                leave.getId(), leave.getLeaveDays(), actual, refund, remark);
     }
 
     @Override

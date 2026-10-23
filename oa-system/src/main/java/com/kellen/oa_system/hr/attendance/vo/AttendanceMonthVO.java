@@ -44,4 +44,15 @@ public class AttendanceMonthVO {
     private Integer status;
 
     private LocalDateTime lockTime;
+
+    /** 假别明细原文（JSON），前端可直接渲染成「年假 2 天 · 病假 1 天」 */
+    private String leaveDaysJson;
+
+    /** 假别明细的展示文本（后端拼好，导出与页面共用一套口径） */
+    private String leaveDaysText;
+
+    /** 加班时数原文（JSON，按工作日/休息日/节假日分档） */
+    private String overtimeJson;
+
+    private String overtimeText;
 }

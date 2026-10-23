@@ -1,10 +1,12 @@
 package com.kellen.oa_system.hr.attendance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.common.util.ExcelExportUtil;
 import com.kellen.oa_system.common.annotation.DataScope;
 import com.kellen.oa_system.hr.attendance.dto.AttendancePageQuery;
 import com.kellen.oa_system.hr.attendance.dto.ClockRequest;
@@ -12,11 +14,15 @@ import com.kellen.oa_system.hr.attendance.dto.ScheduleBatchRequest;
 import com.kellen.oa_system.hr.attendance.dto.ShiftSaveRequest;
 import com.kellen.oa_system.hr.attendance.entity.Attendance;
 import com.kellen.oa_system.hr.attendance.entity.AttendanceMonth;
+import com.kellen.oa_system.hr.attendance.entity.BusinessTrip;
+import com.kellen.oa_system.hr.attendance.entity.Overtime;
 import com.kellen.oa_system.hr.attendance.entity.Holiday;
 import com.kellen.oa_system.hr.attendance.entity.Shift;
 import com.kellen.oa_system.hr.attendance.entity.ShiftSchedule;
 import com.kellen.oa_system.hr.attendance.mapper.AttendanceMapper;
 import com.kellen.oa_system.hr.attendance.mapper.AttendanceMonthMapper;
+import com.kellen.oa_system.hr.attendance.mapper.BusinessTripMapper;
+import com.kellen.oa_system.hr.attendance.mapper.OvertimeMapper;
 import com.kellen.oa_system.hr.attendance.mapper.HolidayMapper;
 import com.kellen.oa_system.hr.attendance.mapper.ShiftMapper;
 import com.kellen.oa_system.hr.attendance.mapper.ShiftScheduleMapper;
@@ -27,11 +33,14 @@ import com.kellen.oa_system.hr.attendance.vo.ScheduleVO;
 import com.kellen.oa_system.hr.attendance.vo.ShiftVO;
 import com.kellen.oa_system.hr.attendance.vo.TodayAttendanceVO;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
+import com.kellen.oa_system.hr.leave.entity.Leave;
+import com.kellen.oa_system.hr.leave.mapper.LeaveMapper;
 import com.kellen.oa_system.security.SecurityContextUtil;
 import com.kellen.oa_system.system.entity.Department;
 import com.kellen.oa_system.system.entity.User;
 import com.kellen.oa_system.system.mapper.DepartmentMapper;
 import com.kellen.oa_system.system.mapper.UserMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -48,6 +57,8 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -55,6 +66,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 考勤业务实现。
@@ -73,10 +86,22 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
 
+    /** 仅用于把月汇总里的 JSON 明细转成展示文本，与业务序列化无关 */
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private static final int STATUS_NORMAL = 1;
     private static final int STATUS_LATE = 2;
     private static final int STATUS_EARLY = 3;
     private static final int STATUS_ABSENT = 4;
+    /** 当天有已通过的请假：算正常出勤的一部分，不能计迟到/早退/缺卡（否则工资会双重扣） */
+    private static final int STATUS_LEAVE = 5;
+    /** 当天在出差中：同上，出差期间免打卡 */
+    private static final int STATUS_TRIP = 6;
+
+    /** 假别名称（与字典 hr_leave_type 一致，用于月汇总的 leave_days_json） */
+    private static final Map<Integer, String> LEAVE_TYPE_LABEL = Map.of(
+            1, "事假", 2, "病假", 3, "年假", 4, "婚假",
+            5, "产假", 6, "陪产假", 7, "丧假", 8, "调休");
 
     private final ShiftMapper shiftMapper;
     private final HolidayMapper holidayMapper;
@@ -86,6 +111,10 @@ public class AttendanceServiceImpl implements AttendanceService {
     private final UserMapper userMapper;
     private final DepartmentMapper departmentMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
+    private final LeaveMapper leaveMapper;
+    private final BusinessTripMapper tripMapper;
+    private final OvertimeMapper overtimeMapper;
+    private final ObjectMapper objectMapper;
 
     // ==================================================================
     // 班次
@@ -488,6 +517,10 @@ public class AttendanceServiceImpl implements AttendanceService {
         if (schedules.isEmpty()) {
             return 0;
         }
+        // 一次性把当天「已通过的请假 / 出差」查出来：日结是按人循环，逐人查库会变成 N+1
+        Set<Long> onLeave = approvedLeaveUserIds(date, date);
+        Set<Long> onTrip = approvedTripUserIds(date, date);
+
         int handled = 0;
         for (ShiftSchedule schedule : schedules) {
             Shift shift = schedule.getShiftId() == null ? null : shiftMapper.selectById(schedule.getShiftId());
@@ -506,11 +539,13 @@ public class AttendanceServiceImpl implements AttendanceService {
                 attendance.setAttendanceDate(date);
                 attendance.setShiftId(shift.getId());
                 applyStatus(attendance, shift, date);
+                applyLeaveOrTrip(attendance, schedule.getUserId(), onLeave, onTrip);
                 attendance.setSettled(1);
                 attendanceMapper.insert(attendance);
             } else {
                 attendance.setShiftId(shift.getId());
                 applyStatus(attendance, shift, date);
+                applyLeaveOrTrip(attendance, schedule.getUserId(), onLeave, onTrip);
                 attendance.setSettled(1);
                 attendanceMapper.updateById(attendance);
             }
@@ -547,6 +582,17 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         Set<Long> userIds = new HashSet<>(shouldDays.keySet());
         userIds.addAll(byUser.keySet());
+
+        // 月汇总里的「假别天数 / 加班时数 / 出差天数」是薪资扣款的依据，必须由月结固化，
+        // 不能让薪资模块自己去猜（否则两边算法一有差异就对不上账）
+        Set<Long> onLeaveAll = approvedLeaveUserIds(start, end);
+        Set<Long> onTripAll = approvedTripUserIds(start, end);
+        Map<Long, Map<String, BigDecimal>> leaveDays = new HashMap<>();
+        Map<Long, BigDecimal> tripDays = new HashMap<>();
+        Map<Long, Map<String, BigDecimal>> overtimeHours = new HashMap<>();
+        aggregateLeaveDays(start, end, onLeaveAll, leaveDays);
+        aggregateTripDays(start, end, onTripAll, tripDays);
+        aggregateOvertime(start, end, overtimeHours);
 
         int count = 0;
         for (Long userId : userIds) {
@@ -590,6 +636,9 @@ public class AttendanceServiceImpl implements AttendanceService {
             entity.setEarlyCount(early);
             entity.setAbsentDays(absent);
             entity.setMissingCount(missing);
+            entity.setLeaveDaysJson(toJson(leaveDays.get(userId)));
+            entity.setOvertimeJson(toJson(overtimeHours.get(userId)));
+            entity.setTripDays(tripDays.getOrDefault(userId, BigDecimal.ZERO));
             entity.setStatus(1);
             if (existing == null) {
                 monthMapper.insert(entity);
@@ -667,6 +716,127 @@ public class AttendanceServiceImpl implements AttendanceService {
      * <p><b>只缺一次卡不判缺勤</b>：标 {@code card_missing} 并落正常/迟到/早退，
      * 等补卡通过后重算。把「少打一次卡」直接算旷工会误扣工资，是最常见的实现错误。</p>
      */
+    /**
+     * 已通过的请假/出差覆盖当天考勤状态。
+     *
+     * <p><b>为什么必须覆盖</b>：请假当天通常没有打卡记录，若按常规逻辑会判成「缺勤 + 缺卡」，
+     * 于是薪资既扣旷工又扣满勤，员工请一天假被扣两次。
+     * 出差同理——出差期间本来就不该打卡。</p>
+     *
+     * <p>请假优先于出差：两者时间重叠时以请假为准（请假要扣额度，是更强的事实）。</p>
+     */
+    private void applyLeaveOrTrip(Attendance attendance, Long userId,
+                                  Set<Long> onLeave, Set<Long> onTrip) {
+        boolean leave = onLeave.contains(userId);
+        boolean trip = !leave && onTrip.contains(userId);
+        if (!leave && !trip) {
+            return;
+        }
+        attendance.setAttendanceStatus(leave ? STATUS_LEAVE : STATUS_TRIP);
+        // 假勤/出差不产生迟到、早退、缺卡，也不计工时——全部由当天假勤单解释
+        attendance.setLateMinutes(0);
+        attendance.setEarlyMinutes(0);
+        attendance.setCardMissing(0);
+        attendance.setWorkDuration(BigDecimal.ZERO);
+    }
+
+    /** 区间内「存在已通过请假」的用户集合（一次查询，供日结/月结复用） */
+    private Set<Long> approvedLeaveUserIds(LocalDate start, LocalDate end) {
+        List<Leave> leaves = leaveMapper.selectList(new LambdaQueryWrapper<Leave>()
+                .eq(Leave::getLeaveStatus, 2)
+                .le(Leave::getStartTime, end.atTime(23, 59, 59))
+                .ge(Leave::getEndTime, start.atStartOfDay()));
+        return leaves.stream().map(Leave::getUserId).collect(Collectors.toSet());
+    }
+
+    /** 区间内「存在已通过出差」的用户集合 */
+    private Set<Long> approvedTripUserIds(LocalDate start, LocalDate end) {
+        List<BusinessTrip> trips = tripMapper.selectList(new LambdaQueryWrapper<BusinessTrip>()
+                .eq(BusinessTrip::getTripStatus, 2)
+                .le(BusinessTrip::getStartDate, end)
+                .ge(BusinessTrip::getEndDate, start));
+        return trips.stream().map(BusinessTrip::getUserId).collect(Collectors.toSet());
+    }
+
+    /**
+     * 按假别汇总本月天数。
+     *
+     * <p>跨月的请假单按「重叠天数 / 总跨度天数 × 请假天数」折算，
+     * 这样 9/29~10/3 的 5 天假在两个月的月汇总里各占自己的部分，合计仍等于 5 天。</p>
+     */
+    private void aggregateLeaveDays(LocalDate start, LocalDate end, Set<Long> userIds,
+                                    Map<Long, Map<String, BigDecimal>> target) {
+        if (userIds.isEmpty()) {
+            return;
+        }
+        List<Leave> leaves = leaveMapper.selectList(new LambdaQueryWrapper<Leave>()
+                .eq(Leave::getLeaveStatus, 2)
+                .le(Leave::getStartTime, end.atTime(23, 59, 59))
+                .ge(Leave::getEndTime, start.atStartOfDay()));
+        for (Leave leave : leaves) {
+            LocalDate from = leave.getStartTime().toLocalDate();
+            LocalDate to = leave.getEndTime().toLocalDate();
+            LocalDate overlapFrom = from.isBefore(start) ? start : from;
+            LocalDate to2 = to.isAfter(end) ? end : to;
+            if (to2.isBefore(overlapFrom)) {
+                continue;
+            }
+            long overlapDays = Duration.between(overlapFrom.atStartOfDay(), to2.plusDays(1).atStartOfDay()).toDays();
+            long spanDays = Duration.between(from.atStartOfDay(), to.plusDays(1).atStartOfDay()).toDays();
+            BigDecimal total = leave.getLeaveDays() == null ? BigDecimal.valueOf(spanDays) : leave.getLeaveDays();
+            BigDecimal days = spanDays <= overlapDays || spanDays <= 0
+                    ? total
+                    : total.multiply(BigDecimal.valueOf(overlapDays))
+                    .divide(BigDecimal.valueOf(spanDays), 1, RoundingMode.HALF_UP);
+            String label = LEAVE_TYPE_LABEL.getOrDefault(leave.getLeaveType(), "其他");
+            target.computeIfAbsent(leave.getUserId(), k -> new LinkedHashMap<>())
+                    .merge(label, days, BigDecimal::add);
+        }
+    }
+
+    /** 出差天数：按自然日重叠天数累加（出差不区分假别，只影响「是否算出勤」） */
+    private void aggregateTripDays(LocalDate start, LocalDate end, Set<Long> userIds,
+                                   Map<Long, BigDecimal> target) {
+        if (userIds.isEmpty()) {
+            return;
+        }
+        List<BusinessTrip> trips = tripMapper.selectList(new LambdaQueryWrapper<BusinessTrip>()
+                .eq(BusinessTrip::getTripStatus, 2)
+                .le(BusinessTrip::getStartDate, end)
+                .ge(BusinessTrip::getEndDate, start));
+        for (BusinessTrip trip : trips) {
+            LocalDate overlapFrom = trip.getStartDate().isBefore(start) ? start : trip.getStartDate();
+            LocalDate overlapTo = trip.getEndDate().isAfter(end) ? end : trip.getEndDate();
+            if (overlapTo.isBefore(overlapFrom)) {
+                continue;
+            }
+            long days = Duration.between(overlapFrom.atStartOfDay(), overlapTo.plusDays(1).atStartOfDay()).toDays();
+            target.merge(trip.getUserId(), BigDecimal.valueOf(days), BigDecimal::add);
+        }
+    }
+
+    /** 加班时数：按加班类型（1 工作日 / 2 休息日 / 3 节假日）汇总，薪资按类型乘不同倍率 */
+    private void aggregateOvertime(LocalDate start, LocalDate end,
+                                   Map<Long, Map<String, BigDecimal>> target) {
+        List<Overtime> list = overtimeMapper.selectList(new LambdaQueryWrapper<Overtime>()
+                .eq(Overtime::getOvertimeStatus, 2)
+                .between(Overtime::getOvertimeDate, start, end));
+        for (Overtime item : list) {
+            String label = switch (item.getOvertimeType() == null ? 1 : item.getOvertimeType()) {
+                case 2 -> "休息日";
+                case 3 -> "节假日";
+                default -> "工作日";
+            };
+            target.computeIfAbsent(item.getUserId(), k -> new LinkedHashMap<>())
+                    .merge(label, item.getHours() == null ? BigDecimal.ZERO : item.getHours(), BigDecimal::add);
+        }
+    }
+
+    /** 空值输出 null 而不是 "{}"：月汇总里没请假就是没数据，前端据此不显示该列 */
+    private String toJson(Map<String, BigDecimal> values) {
+        return values == null || values.isEmpty() ? null : objectMapper.writeValueAsString(values);
+    }
+
     private void applyStatus(Attendance attendance, Shift shift, LocalDate date) {
         LocalDateTime start = LocalDateTime.of(date, shift.getWorkStart());
         LocalDateTime end = LocalDateTime.of(date, shift.getWorkEnd());
@@ -837,6 +1007,10 @@ public class AttendanceServiceImpl implements AttendanceService {
             vo.setAbsentDays(m.getAbsentDays());
             vo.setMissingCount(m.getMissingCount());
             vo.setTripDays(m.getTripDays());
+            vo.setLeaveDaysJson(m.getLeaveDaysJson());
+            vo.setLeaveDaysText(readable(m.getLeaveDaysJson(), "天"));
+            vo.setOvertimeJson(m.getOvertimeJson());
+            vo.setOvertimeText(readable(m.getOvertimeJson(), "小时"));
             vo.setStatus(m.getStatus());
             vo.setLockTime(m.getLockTime());
             vos.add(vo);
@@ -870,6 +1044,135 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP).toPlainString();
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int resettleLeaveRange(Long userId, LocalDate from, LocalDate to) {
+        if (userId == null || from == null || to == null || to.isBefore(from)) {
+            return 0;
+        }
+        List<Attendance> stale = attendanceMapper.selectList(new LambdaQueryWrapper<Attendance>()
+                .eq(Attendance::getUserId, userId)
+                .between(Attendance::getAttendanceDate, from, to)
+                .eq(Attendance::getAttendanceStatus, STATUS_LEAVE)
+                .isNull(Attendance::getCheckInTime)
+                .isNull(Attendance::getCheckOutTime));
+        for (Attendance item : stale) {
+            // 逻辑删：唯一索引带 active_flag，删掉后同一天可以重新日结出新的行
+            attendanceMapper.deleteById(item.getId());
+        }
+        // 排班置「未结算」，下一次日结才会重新判定这几天到底是正常、缺勤还是又请了假
+        scheduleMapper.update(null, new LambdaUpdateWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getUserId, userId)
+                .between(ShiftSchedule::getScheduleDate, from, to)
+                .set(ShiftSchedule::getSettled, 0));
+
+        // 涉及的月份汇总同样作废重算；已封账的月份不动（封账即结果不可变）
+        Set<String> months = new LinkedHashSet<>();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            months.add(d.format(MONTH_FORMAT));
+        }
+        for (String month : months) {
+            monthMapper.delete(new LambdaQueryWrapper<AttendanceMonth>()
+                    .eq(AttendanceMonth::getUserId, userId)
+                    .eq(AttendanceMonth::getMonth, month)
+                    .ne(AttendanceMonth::getStatus, 2));
+        }
+        log.info("销假后作废假勤记录: userId={} {}~{} 天数={}", userId, from, to, stale.size());
+        return stale.size();
+    }
+
+    @Override
+    public void exportMonth(String month, Long deptId, HttpServletResponse response) {
+        List<AttendanceMonthVO> rows = toMonthVOs(monthMapper.selectList(deptQuery(month, deptId)));
+        List<String> headers = List.of("工号", "姓名", "部门", "月份", "应出勤(天)", "实际出勤(天)",
+                "迟到(次)", "早退(次)", "旷工(天)", "缺卡(次)", "出差(天)", "假别明细", "状态");
+        List<List<Object>> data = new ArrayList<>();
+        for (AttendanceMonthVO vo : rows) {
+            data.add(List.of(
+                    nvl(vo.getWorkNumber()), nvl(vo.getRealName()), nvl(vo.getDeptName()), nvl(vo.getMonth()),
+                    vo.getShouldDays() == null ? BigDecimal.ZERO : vo.getShouldDays(),
+                    vo.getActualDays() == null ? BigDecimal.ZERO : vo.getActualDays(),
+                    vo.getLateCount() == null ? 0 : vo.getLateCount(),
+                    vo.getEarlyCount() == null ? 0 : vo.getEarlyCount(),
+                    vo.getAbsentDays() == null ? BigDecimal.ZERO : vo.getAbsentDays(),
+                    vo.getMissingCount() == null ? 0 : vo.getMissingCount(),
+                    vo.getTripDays() == null ? BigDecimal.ZERO : vo.getTripDays(),
+                    nvl(vo.getLeaveDaysText()),
+                    Objects.equals(vo.getStatus(), 2) ? "已封账" : "未封账"));
+        }
+        ExcelExportUtil.write(response, "考勤月度汇总-" + month + ".xlsx", "月度汇总", headers, data);
+    }
+
+    /** 月度汇总查询条件（页面与导出共用，避免两处条件写得不一样） */
+    private LambdaQueryWrapper<AttendanceMonth> deptQuery(String month, Long deptId) {
+        LambdaQueryWrapper<AttendanceMonth> wrapper = new LambdaQueryWrapper<AttendanceMonth>()
+                .eq(AttendanceMonth::getMonth, month)
+                // 表里没有 dept_id（部门来自 oa_user），先按人排，导出时再按部门归组展示
+                .orderByAsc(AttendanceMonth::getUserId);
+        if (deptId != null) {
+            List<Long> deptIds = new ArrayList<>();
+            deptIds.add(deptId);
+            collectChildDepts(deptId, deptIds);
+            List<Long> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                            .in(User::getDeptId, deptIds).select(User::getId))
+                    .stream().map(User::getId).toList();
+            if (users.isEmpty()) {
+                // 空集合不能拼 IN ()：用一个不可能成立的 id 让查询自然返回空
+                wrapper.eq(AttendanceMonth::getUserId, -1L);
+            } else {
+                wrapper.in(AttendanceMonth::getUserId, users);
+            }
+        }
+        return wrapper;
+    }
+
+    private void collectChildDepts(Long parentId, List<Long> target) {
+        List<Department> children = departmentMapper.selectList(new LambdaQueryWrapper<Department>()
+                .eq(Department::getParentId, parentId).select(Department::getId));
+        for (Department child : children) {
+            if (!target.contains(child.getId())) {
+                target.add(child.getId());
+                collectChildDepts(child.getId(), target);
+            }
+        }
+    }
+
+    /**
+     * 把 {"年假":2.0,"病假":1.0} 转成「年假 2 天 · 病假 1 天」。
+     *
+     * <p>解析失败时原样返回——展示层不能因为一条脏数据把整个列表搞崩，
+     * 让运维看到原始 JSON 反而更容易定位问题。</p>
+     */
+    private static String readable(String json, String unit) {
+        if (!StringUtils.hasText(json)) {
+            return "";
+        }
+        try {
+            Map<String, Object> map = MAPPER.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {
+            });
+            if (map == null || map.isEmpty()) {
+                return "";
+            }
+            List<String> parts = new ArrayList<>();
+            map.forEach((k, v) -> parts.add(k + " " + stripZero(v) + " " + unit));
+            return String.join(" · ", parts);
+        } catch (RuntimeException e) {
+            return json;
+        }
+    }
+
+    private static String stripZero(Object value) {
+        if (value == null) {
+            return "0";
+        }
+        BigDecimal decimal = new BigDecimal(String.valueOf(value)).stripTrailingZeros();
+        return decimal.scale() <= 0 ? decimal.toBigInteger().toString() : decimal.toPlainString();
+    }
+
+    private static String nvl(String value) {
+        return value == null ? "" : value;
+    }
+
     private static String statusLabel(Integer status) {
         if (status == null) {
             return null;
@@ -880,6 +1183,7 @@ public class AttendanceServiceImpl implements AttendanceService {
             case 3 -> "早退";
             case 4 -> "缺勤";
             case 5 -> "假勤";
+            case 6 -> "出差";
             default -> "未知";
         };
     }

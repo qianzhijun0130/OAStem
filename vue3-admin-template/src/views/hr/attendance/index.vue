@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import {
   batchScheduleApi,
   deleteShiftApi,
+  exportAttendanceMonthApi,
   getAttendanceMonthApi,
   getAttendancePageApi,
   listScheduleApi,
@@ -62,6 +63,28 @@ const monthQuery = useListQuery<AttendanceMonthVO, { month: string; deptId?: num
   fetcher: (params) => getAttendanceMonthApi(params),
   immediate: false,
 })
+
+/** 导出月度汇总：财务签字要用，不能只截个图 */
+const monthExporting = ref(false)
+
+async function exportMonth() {
+  const month = monthQuery.query.month || currentMonth()
+  monthExporting.value = true
+  try {
+    const blob = await exportAttendanceMonthApi({ month, deptId: monthQuery.query.deptId })
+    const url = URL.createObjectURL(blob as Blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `考勤月度汇总-${month}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出完成')
+  } catch (error) {
+    logAsyncError('exportAttendanceMonth', error)
+  } finally {
+    monthExporting.value = false
+  }
+}
 
 /* ---------------- 重算 / 封账 ---------------- */
 
@@ -397,6 +420,15 @@ onMounted(async () => {
               <el-button type="primary" @click="monthQuery.search">查询</el-button>
               <el-button v-permission="'hr:attendance:lock'" @click="lockMonth">封账</el-button>
               <el-button v-permission="'hr:attendance:unlock'" @click="unlockMonth">解封</el-button>
+              <el-button
+                v-permission="'hr:attendance:export'"
+                type="primary"
+                plain
+                :loading="monthExporting"
+                @click="exportMonth"
+              >
+                导出
+              </el-button>
             </el-form-item>
           </el-form>
           <el-alert
@@ -417,6 +449,19 @@ onMounted(async () => {
             <el-table-column prop="lateCount" label="迟到(次)" width="95" />
             <el-table-column prop="earlyCount" label="早退(次)" width="95" />
             <el-table-column prop="missingCount" label="缺卡(次)" width="95" />
+            <el-table-column prop="tripDays" label="出差(天)" width="95" />
+            <el-table-column label="假别明细" min-width="170">
+              <template #default="{ row }">
+                <span v-if="row.leaveDaysText">{{ row.leaveDaysText }}</span>
+                <span v-else class="hr-att__muted">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="加班时数" min-width="170">
+              <template #default="{ row }">
+                <span v-if="row.overtimeText">{{ row.overtimeText }}</span>
+                <span v-else class="hr-att__muted">-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
                 <el-tag :type="row.status === 2 ? 'success' : 'info'" effect="plain">
@@ -589,6 +634,10 @@ onMounted(async () => {
 
 .hr-att__tip {
   margin: 4px 0 12px;
+}
+
+.hr-att__muted {
+  color: #c0c4cc;
 }
 
 .hr-att__pagination {

@@ -5,6 +5,7 @@ import {
   adjustLeaveQuotaApi,
   cancelHrRequestApi,
   cancelLeaveApi,
+  returnLeaveApi,
   getHrRequestPageApi,
   getLeavePageApi,
   getMyLeaveQuotaApi,
@@ -167,6 +168,11 @@ async function submitLeave() {
   }
 }
 
+/** 销假入口只在「已通过 + 未销假」时出现；重复销假会让额度退两次，后端也会拦 */
+function canReturn(row: LeaveVO) {
+  return row.leaveStatus === 2 && (row.cancelStatus ?? 0) === 0
+}
+
 async function cancelLeave(row: LeaveVO) {
   try {
     await ElMessageBox.confirm(`确定撤销单据「${row.billCode || row.id}」吗？额度会立即释放。`, '撤销请假', {
@@ -183,6 +189,50 @@ async function cancelLeave(row: LeaveVO) {
     await Promise.all([loadLeaves(), loadQuota()])
   } catch (error) {
     logAsyncError('cancelLeave', error)
+  }
+}
+
+/**
+ * 销假（提前返岗）。
+ *
+ * <p>用 prompt 收一个日期而不是做弹窗：信息量只有一个字段，
+ * 多一层弹窗反而比系统原生输入框更慢。默认值给「明天」——绝大多数销假是当天登记次日返岗。</p>
+ */
+async function returnFromLeave(row: LeaveVO) {
+  const startDate = (row.startTime || '').slice(0, 10)
+  const endDate = (row.endTime || '').slice(0, 10)
+  let returnDate = ''
+  try {
+    const result = await ElMessageBox.prompt(
+      `登记实际返岗日期（须晚于 ${startDate}，不晚于 ${endDate} 次日）。差额额度会自动退回。`,
+      '销假',
+      {
+        type: 'warning',
+        confirmButtonText: '确定销假',
+        cancelButtonText: '取消',
+        inputType: 'date',
+        inputValue: endDate,
+        inputValidator: (value: string) => {
+          if (!value) {
+            return '请选择返岗日期'
+          }
+          if (value <= startDate) {
+            return `返岗日期须晚于 ${startDate}`
+          }
+          return true
+        },
+      },
+    )
+    returnDate = result.value
+  } catch {
+    return
+  }
+  try {
+    await returnLeaveApi(row.id, returnDate)
+    ElMessage.success('已销假，差额额度已退回')
+    await Promise.all([loadLeaves(), loadQuota()])
+  } catch (error) {
+    logAsyncError('returnFromLeave', error)
   }
 }
 
@@ -368,7 +418,14 @@ onMounted(() => {
                 {{ (row.endTime || '').replace('T', ' ').slice(0, 16) }}
               </template>
             </el-table-column>
-            <el-table-column prop="leaveDays" label="天数" width="80" />
+            <el-table-column label="天数" width="110">
+              <template #default="{ row }">
+                {{ row.leaveDays }}
+                <el-tooltip v-if="row.actualDays != null" :content="`实际休假 ${row.actualDays} 天，返岗 ${row.returnDate}`">
+                  <el-tag size="small" type="success" effect="plain">已销假</el-tag>
+                </el-tooltip>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
                 <el-tag :type="statusMeta(row.leaveStatus).type" effect="plain">
@@ -377,12 +434,22 @@ onMounted(() => {
               </template>
             </el-table-column>
             <el-table-column prop="reason" label="事由" min-width="160" show-overflow-tooltip />
-            <el-table-column label="操作" width="110" fixed="right">
+            <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="row.canCancel" icon-only link type="danger" title="撤销" @click="cancelLeave(row)">
                   撤销
                 </el-button>
-                <span v-else class="hr-leave__muted">-</span>
+                <el-button
+                  v-if="canReturn(row)"
+                  icon-only
+                  link
+                  type="primary"
+                  title="销假"
+                  @click="returnFromLeave(row)"
+                >
+                  销假
+                </el-button>
+                <span v-if="!row.canCancel && !canReturn(row)" class="hr-leave__muted">-</span>
               </template>
             </el-table-column>
           </el-table>

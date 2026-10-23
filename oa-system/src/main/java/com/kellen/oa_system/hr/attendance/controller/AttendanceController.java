@@ -16,6 +16,7 @@ import com.kellen.oa_system.hr.attendance.vo.TodayAttendanceVO;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -143,6 +144,20 @@ public class AttendanceController {
     public Result<Integer> settle(@RequestParam LocalDate date,
                                   @RequestParam(defaultValue = "true") boolean force) {
         return Result.success(attendanceService.settleDate(date, force));
+    }
+
+    /**
+     * 月度汇总导出。
+     *
+     * <p>单独挂 export 权限码：导出等于把全员考勤数据带走，不能和「看一眼列表」同权限。</p>
+     */
+    @GetMapping("/month/export")
+    @PreAuthorize("hasAuthority('hr:attendance:export')")
+    @OperationLog(module = "考勤管理", operation = "导出考勤月度汇总 {#month}")
+    public void exportMonth(@RequestParam @NotBlank(message = "月份不能为空") String month,
+                            @RequestParam(required = false) Long deptId,
+                            HttpServletResponse response) {
+        attendanceService.exportMonth(month, deptId, response);
     }
 
     @PostMapping("/rebuild")
