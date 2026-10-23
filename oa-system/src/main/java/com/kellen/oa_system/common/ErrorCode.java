@@ -135,6 +135,18 @@ public enum ErrorCode {
     HR_TRIP_LEAVE_CONFLICT(6309, "出差时间与已有请假时间冲突"),
     HR_CARD_ALREADY_EXISTS(6310, "该日期该方向已有补卡记录"),
 
+    // ---------- 业务错误：薪资 64xx ----------
+    HR_SALARY_PROFILE_MISSING(6401, "存在没有生效薪资档案的员工，请先维护薪资档案"),
+    HR_SALARY_ATTENDANCE_UNLOCKED(6402, "该月考勤尚未封账，封账后才能核算薪资（否则考勤一变工资就对不上）"),
+    HR_SALARY_MONTH_LOCKED(6403, "该月薪资已封账或已发放，不能再修改"),
+    HR_SALARY_STATUS_INVALID(6404, "当前状态不允许该操作"),
+    HR_SALARY_ADJUST_REASON_REQUIRED(6405, "手工调整必须填写原因"),
+    HR_SALARY_ITEM_DUPLICATE(6406, "薪资项编码已存在"),
+    HR_SALARY_POLICY_DUPLICATE(6407, "该城市该年度的社保政策已存在"),
+    HR_SALARY_RECORD_NOT_FOUND(6408, "薪资记录不存在"),
+    HR_SALARY_POLICY_MISSING(6409, "缺少该年度的社保政策，请先在「社保政策」中配置"),
+    HR_SALARY_NO_DATA(6410, "该月没有可核算的数据，请先维护薪资档案与考勤月结"),
+
     // ---------- 系统错误 5xxx ----------
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
 
