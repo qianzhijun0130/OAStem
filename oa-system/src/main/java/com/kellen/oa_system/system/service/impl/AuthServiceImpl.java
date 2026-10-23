@@ -6,6 +6,7 @@ import com.kellen.oa_system.common.util.UserAgentUtil;
 import com.kellen.oa_system.security.JwtUtil;
 import com.kellen.oa_system.security.LoginFailureGuard;
 import com.kellen.oa_system.security.LoginUser;
+import com.kellen.oa_system.security.OnlineUserRegistry;
 import com.kellen.oa_system.system.dto.LoginRequest;
 import com.kellen.oa_system.system.entity.LoginLog;
 import com.kellen.oa_system.system.entity.User;
@@ -46,6 +47,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserService userService;
     private final LoginLogMapper loginLogMapper;
     private final LoginFailureGuard loginFailureGuard;
+    private final OnlineUserRegistry onlineUserRegistry;
 
     @Override
     public LoginResponse login(LoginRequest request, String ip, String userAgent) {
@@ -63,6 +65,11 @@ public class AuthServiceImpl implements AuthService {
             String token = jwtUtil.generateToken(loginUser);
             userService.updateLoginInfo(loginUser.getUserId(), ip);
             recordLoginLog(loginUser.getUserId(), username, ip, userAgent, 1, null);
+            // 登记在线会话（TTL = 令牌有效期）：失效即自动从「在线用户」列表消失，无需清理任务。
+            // 失败不影响登录本身——在线列表属于旁路能力，不能因为它把登录打断
+            onlineUserRegistry.register(loginUser.getUserId(), loginUser.getUsername(),
+                    resolveRealName(loginUser.getUserId()), ip, userAgent,
+                    jwtUtil.getExpirationMillis() / 1000);
             // 登录成功即清空失败计数，避免正常用户偶发输错被逐步累积到锁定
             loginFailureGuard.onSuccess(username);
 

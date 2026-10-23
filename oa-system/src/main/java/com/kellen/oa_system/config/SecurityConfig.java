@@ -67,8 +67,13 @@ public class SecurityConfig {
                         .requestMatchers(PERMIT_ALL_PATTERNS).permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exception -> exception
-                        .authenticationEntryPoint((request, response, authException) ->
-                                writeJson(response, ErrorCode.UNAUTHORIZED))
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            // 过滤器可能已标记具体原因（如被管理员强制下线），没有则回落到通用 401
+                            Object reason = request.getAttribute(
+                                    com.kellen.oa_system.security.JwtAuthenticationFilter.AUTH_ERROR_ATTRIBUTE);
+                            writeJson(response,
+                                    reason instanceof ErrorCode code ? code : ErrorCode.UNAUTHORIZED);
+                        })
                         .accessDeniedHandler((request, response, accessDeniedException) ->
                                 writeJson(response, ErrorCode.FORBIDDEN)))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

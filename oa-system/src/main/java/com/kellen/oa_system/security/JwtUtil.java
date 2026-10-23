@@ -30,6 +30,14 @@ public class JwtUtil {
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_ROLES = "roles";
     private static final String CLAIM_PERMS = "perms";
+    /**
+     * 毫秒级签发时间。
+     *
+     * <p>标准 {@code iat} 只有秒精度，而「强制下线」要比较「令牌是否在踢出时刻之前签发」：
+     * 同一秒内先签发、后被踢出，用秒级比较会漏判（或误伤刚登录的新令牌）。
+     * 因此额外带一个毫秒声明；老令牌没有该声明时回落到 {@code iat * 1000}。</p>
+     */
+    private static final String CLAIM_IAT_MS = "iatMs";
 
     @Value("${jwt.secret}")
     private String secret;
@@ -49,6 +57,7 @@ public class JwtUtil {
                 .claim(CLAIM_USER_ID, loginUser.getUserId())
                 .claim(CLAIM_ROLES, loginUser.getRoles())
                 .claim(CLAIM_PERMS, loginUser.getPermissions())
+                .claim(CLAIM_IAT_MS, now.getTime())
                 .issuedAt(now)
                 .expiration(expireAt)
                 .signWith(getSigningKey())
@@ -64,6 +73,16 @@ public class JwtUtil {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    /** 令牌签发时刻（毫秒）。老令牌没有 iatMs 时用秒级 iat 换算。 */
+    public long getIssuedAtMillis(Claims claims) {
+        Object ms = claims.get(CLAIM_IAT_MS);
+        if (ms instanceof Number number) {
+            return number.longValue();
+        }
+        Date issuedAt = claims.getIssuedAt();
+        return issuedAt == null ? 0L : issuedAt.getTime();
     }
 
     @SuppressWarnings("unchecked")

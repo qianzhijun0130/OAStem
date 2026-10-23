@@ -614,6 +614,21 @@ export interface DashboardOverviewVO {
   latestNotices: LatestNoticeVO[]
 }
 
+/* ========== 在线用户（会话快照，数据源为 Redis） ========== */
+
+export interface OnlineUserVO {
+  userId: number
+  username: string
+  realName?: string
+  clientIp?: string
+  /** 浏览器 UA 摘要（后端已截断） */
+  userAgent?: string
+  loginTime?: string
+  expireTime?: string
+  /** 已在线分钟数（后端算好，避免前后端各算一套） */
+  onlineMinutes: number
+}
+
 /* ========== 第四阶段：个人中心 ========== */
 
 export interface ProfileVO {

@@ -36,6 +36,11 @@ public enum ErrorCode {
     USER_IMPORT_FILE_INVALID(1111, "导入文件格式不正确，请下载系统模板后重新填写"),
     USER_IMPORT_EMPTY(1112, "导入文件中没有可导入的数据"),
     WORK_NUMBER_GENERATE_FAILED(1113, "工号生成失败，请联系管理员检查部门工号前缀"),
+    /** 被管理员强制下线：code 仍为 401，前端据此直接清理本地令牌并跳登录页；message 用来区分原因 */
+    TOKEN_KICKED(401, "账号已被管理员强制下线，请重新登录"),
+    ONLINE_USER_NOT_FOUND(1114, "该用户当前不在线"),
+    ONLINE_KICK_SELF_FORBIDDEN(1115, "不能强制下线当前登录账号"),
+    ONLINE_KICK_UNAVAILABLE(1116, "Redis 不可用，暂时无法执行强制下线"),
 
     // ---------- 业务错误：组织架构与权限 2xxx ----------
     DEPT_NOT_FOUND(2001, "部门不存在"),

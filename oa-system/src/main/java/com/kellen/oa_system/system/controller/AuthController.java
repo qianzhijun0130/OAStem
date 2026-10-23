@@ -4,6 +4,7 @@ import com.kellen.oa_system.common.Result;
 import com.kellen.oa_system.common.util.IpUtil;
 import com.kellen.oa_system.security.JwtUtil;
 import com.kellen.oa_system.security.LoginUser;
+import com.kellen.oa_system.security.OnlineUserRegistry;
 import com.kellen.oa_system.security.SecurityContextUtil;
 import com.kellen.oa_system.security.TokenBlacklistService;
 import com.kellen.oa_system.system.dto.LoginRequest;
@@ -51,6 +52,7 @@ public class AuthController {
     private final DepartmentMapper departmentMapper;
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
+    private final OnlineUserRegistry onlineUserRegistry;
 
     /**
      * 登录。
@@ -120,6 +122,8 @@ public class AuthController {
             try {
                 Claims claims = jwtUtil.parseToken(token);
                 tokenBlacklistService.blacklist(token, jwtUtil.getRemainingSeconds(claims));
+                // 同步移除在线会话：否则「已登出」的账号还会挂在在线列表里直到令牌自然过期
+                onlineUserRegistry.unregister(jwtUtil.getUserId(claims));
             } catch (JwtException | IllegalArgumentException e) {
                 // 令牌本身已过期或伪造：无需登记，它本来就不可用
                 log.debug("登出时令牌不可解析，跳过黑名单登记: {}", e.getMessage());

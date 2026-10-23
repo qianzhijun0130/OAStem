@@ -47,7 +47,10 @@ service.interceptors.response.use(
     if (status === UNAUTHORIZED_CODE || bizCode === UNAUTHORIZED_CODE) {
       const userStore = useUserStore()
       userStore.forceLogout()
-      ElMessage.error('登录已失效，请重新登录')
+      // 401 也承载不同原因（令牌过期 / 被管理员强制下线），优先用后端文案，
+      // 否则被踢下线的用户只会看到「登录已失效」，不知道发生了什么
+      const reason = error.response?.data?.message
+      ElMessage.error(reason || '登录已失效，请重新登录')
       return Promise.reject(error)
     }
     if (status === FORBIDDEN_CODE || bizCode === FORBIDDEN_CODE) {
