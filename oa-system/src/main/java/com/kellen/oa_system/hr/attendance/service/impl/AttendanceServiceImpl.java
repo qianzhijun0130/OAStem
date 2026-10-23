@@ -1,0 +1,890 @@
+package com.kellen.oa_system.hr.attendance.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.kellen.oa_system.common.BizException;
+import com.kellen.oa_system.common.ErrorCode;
+import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.common.annotation.DataScope;
+import com.kellen.oa_system.hr.attendance.dto.AttendancePageQuery;
+import com.kellen.oa_system.hr.attendance.dto.ClockRequest;
+import com.kellen.oa_system.hr.attendance.dto.ScheduleBatchRequest;
+import com.kellen.oa_system.hr.attendance.dto.ShiftSaveRequest;
+import com.kellen.oa_system.hr.attendance.entity.Attendance;
+import com.kellen.oa_system.hr.attendance.entity.AttendanceMonth;
+import com.kellen.oa_system.hr.attendance.entity.Holiday;
+import com.kellen.oa_system.hr.attendance.entity.Shift;
+import com.kellen.oa_system.hr.attendance.entity.ShiftSchedule;
+import com.kellen.oa_system.hr.attendance.mapper.AttendanceMapper;
+import com.kellen.oa_system.hr.attendance.mapper.AttendanceMonthMapper;
+import com.kellen.oa_system.hr.attendance.mapper.HolidayMapper;
+import com.kellen.oa_system.hr.attendance.mapper.ShiftMapper;
+import com.kellen.oa_system.hr.attendance.mapper.ShiftScheduleMapper;
+import com.kellen.oa_system.hr.attendance.service.AttendanceService;
+import com.kellen.oa_system.hr.attendance.vo.AttendanceMonthVO;
+import com.kellen.oa_system.hr.attendance.vo.AttendanceVO;
+import com.kellen.oa_system.hr.attendance.vo.ScheduleVO;
+import com.kellen.oa_system.hr.attendance.vo.ShiftVO;
+import com.kellen.oa_system.hr.attendance.vo.TodayAttendanceVO;
+import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
+import com.kellen.oa_system.security.SecurityContextUtil;
+import com.kellen.oa_system.system.entity.Department;
+import com.kellen.oa_system.system.entity.User;
+import com.kellen.oa_system.system.mapper.DepartmentMapper;
+import com.kellen.oa_system.system.mapper.UserMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * 考勤业务实现。
+ *
+ * <p>三个关键口径（与《开发文档/人力资源/02》一致，改动前请先看文档）：</p>
+ * <ol>
+ *   <li>未排班的日期<b>不产生考勤记录</b>，也不判缺勤——否则新员工入职前会被算成旷工；</li>
+ *   <li>只缺一次卡记 {@code card_missing}，<b>不判旷工</b>，等补卡输入后再重算；</li>
+ *   <li>日结幂等：同一人同一天只有一行（唯一索引 + upsert），重跑不会翻倍。</li>
+ * </ol>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AttendanceServiceImpl implements AttendanceService {
+
+    private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
+
+    private static final int STATUS_NORMAL = 1;
+    private static final int STATUS_LATE = 2;
+    private static final int STATUS_EARLY = 3;
+    private static final int STATUS_ABSENT = 4;
+
+    private final ShiftMapper shiftMapper;
+    private final HolidayMapper holidayMapper;
+    private final ShiftScheduleMapper scheduleMapper;
+    private final AttendanceMapper attendanceMapper;
+    private final AttendanceMonthMapper monthMapper;
+    private final UserMapper userMapper;
+    private final DepartmentMapper departmentMapper;
+    private final HrDataScopeSupport hrDataScopeSupport;
+
+    // ==================================================================
+    // 班次
+    // ==================================================================
+
+    @Override
+    public List<ShiftVO> listShifts() {
+        List<Shift> list = shiftMapper.selectList(new LambdaQueryWrapper<Shift>()
+                .orderByAsc(Shift::getId));
+        List<ShiftVO> vos = new ArrayList<>(list.size());
+        for (Shift s : list) {
+            ShiftVO vo = new ShiftVO();
+            vo.setId(s.getId());
+            vo.setShiftCode(s.getShiftCode());
+            vo.setShiftName(s.getShiftName());
+            vo.setWorkStart(s.getWorkStart());
+            vo.setWorkEnd(s.getWorkEnd());
+            vo.setRestMinutes(s.getRestMinutes());
+            vo.setLateGrace(s.getLateGrace());
+            vo.setEarlyGrace(s.getEarlyGrace());
+            vo.setFlexible(s.getFlexible());
+            vo.setFreeClock(s.getFreeClock());
+            vo.setStatus(s.getStatus());
+            vo.setStandardHours(standardHours(s));
+            vos.add(vo);
+        }
+        return vos;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long saveShift(ShiftSaveRequest request) {
+        LambdaQueryWrapper<Shift> dup = new LambdaQueryWrapper<Shift>()
+                .eq(Shift::getShiftCode, request.getShiftCode().trim());
+        if (request.getId() != null) {
+            dup.ne(Shift::getId, request.getId());
+        }
+        if (shiftMapper.selectCount(dup) > 0) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "班次编码已存在");
+        }
+        Shift entity = request.getId() == null ? new Shift() : shiftMapper.selectById(request.getId());
+        if (entity == null) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "班次不存在");
+        }
+        entity.setShiftCode(request.getShiftCode().trim());
+        entity.setShiftName(request.getShiftName().trim());
+        entity.setWorkStart(request.getWorkStart());
+        entity.setWorkEnd(request.getWorkEnd());
+        entity.setRestMinutes(request.getRestMinutes() == null ? 60 : request.getRestMinutes());
+        entity.setLateGrace(request.getLateGrace() == null ? 5 : request.getLateGrace());
+        entity.setEarlyGrace(request.getEarlyGrace() == null ? 0 : request.getEarlyGrace());
+        entity.setFlexible(request.getFlexible() == null ? 0 : request.getFlexible());
+        entity.setFreeClock(request.getFreeClock() == null ? 0 : request.getFreeClock());
+        entity.setStatus(request.getStatus() == null ? 1 : request.getStatus());
+        if (request.getId() == null) {
+            shiftMapper.insert(entity);
+        } else {
+            shiftMapper.updateById(entity);
+        }
+        return entity.getId();
+    }
+
+    @Override
+    public void deleteShift(Long id) {
+        Shift shift = shiftMapper.selectById(id);
+        if (shift == null) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "班次不存在");
+        }
+        // 已排班的班次不允许删除：删了会让历史排班指向不存在的班次，考勤无法重算
+        Long used = scheduleMapper.selectCount(new LambdaQueryWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getShiftId, id));
+        if (used != null && used > 0) {
+            throw new BizException(ErrorCode.BAD_REQUEST,
+                    "该班次已被 " + used + " 条排班引用，请先停用而不是删除");
+        }
+        shiftMapper.deleteById(id);
+    }
+
+    @Override
+    public void updateShiftStatus(Long id, Integer status) {
+        Shift shift = shiftMapper.selectById(id);
+        if (shift == null) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "班次不存在");
+        }
+        Shift patch = new Shift();
+        patch.setId(id);
+        patch.setStatus(status);
+        shiftMapper.updateById(patch);
+    }
+
+    // ==================================================================
+    // 排班
+    // ==================================================================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchSchedule(ScheduleBatchRequest request) {
+        Shift shift = shiftMapper.selectById(request.getShiftId());
+        if (shift == null) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "班次不存在");
+        }
+        YearMonth ym = parseMonth(request.getMonth());
+        LocalDate start = request.getStartDate() != null ? request.getStartDate() : ym.atDay(1);
+        LocalDate end = request.getEndDate() != null ? request.getEndDate() : ym.atEndOfMonth();
+
+        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .in(User::getDeptId, hrDataScopeSupport.subtreeIds(request.getDeptId()))
+                .in(User::getEmploymentStatus, List.of(2, 3, 4)));
+        if (users.isEmpty()) {
+            return 0;
+        }
+        boolean includeWeekend = request.getIncludeWeekend() != null && request.getIncludeWeekend() == 1;
+        boolean overwrite = request.getOverwrite() != null && request.getOverwrite() == 1;
+
+        Set<LocalDate> holidays = holidayMapper.selectList(new LambdaQueryWrapper<Holiday>()
+                        .between(Holiday::getHolidayDate, start, end))
+                .stream().map(Holiday::getHolidayDate).collect(Collectors.toSet());
+
+        int count = 0;
+        for (User user : users) {
+            for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+                boolean weekend = date.getDayOfWeek().getValue() >= 6;
+                boolean offDay = holidays.contains(date) || (weekend && !includeWeekend);
+                ShiftSchedule existing = scheduleMapper.selectOne(new LambdaQueryWrapper<ShiftSchedule>()
+                        .eq(ShiftSchedule::getUserId, user.getId())
+                        .eq(ShiftSchedule::getScheduleDate, date)
+                        .last("LIMIT 1"));
+                if (existing != null && !overwrite) {
+                    continue;
+                }
+                ShiftSchedule schedule = existing == null ? new ShiftSchedule() : existing;
+                schedule.setUserId(user.getId());
+                schedule.setScheduleDate(date);
+                schedule.setShiftId(offDay ? null : shift.getId());
+                schedule.setDayType(offDay ? (holidays.contains(date) ? 3 : 2) : 1);
+                schedule.setSettled(0);
+                if (existing == null) {
+                    scheduleMapper.insert(schedule);
+                } else {
+                    scheduleMapper.updateById(schedule);
+                }
+                count++;
+            }
+        }
+        log.info("批量排班完成: deptId={} month={} shiftId={} count={}",
+                request.getDeptId(), ym, shift.getId(), count);
+        return count;
+    }
+
+    @Override
+    public List<ScheduleVO> listSchedule(Long deptId, String month) {
+        YearMonth ym = parseMonth(month);
+        LambdaQueryWrapper<ShiftSchedule> wrapper = new LambdaQueryWrapper<ShiftSchedule>()
+                .between(ShiftSchedule::getScheduleDate, ym.atDay(1), ym.atEndOfMonth())
+                .orderByAsc(ShiftSchedule::getScheduleDate);
+        if (deptId != null) {
+            List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                    .select(User::getId)
+                    .in(User::getDeptId, hrDataScopeSupport.subtreeIds(deptId)));
+            if (users.isEmpty()) {
+                return List.of();
+            }
+            wrapper.in(ShiftSchedule::getUserId, users.stream().map(User::getId).toList());
+        }
+        List<ShiftSchedule> list = scheduleMapper.selectList(wrapper);
+        if (list.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, User> users = userMapper.selectBatchIds(list.stream()
+                        .map(ShiftSchedule::getUserId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        Map<Long, String> shiftNames = shiftMapper.selectList(null).stream()
+                .collect(Collectors.toMap(Shift::getId, Shift::getShiftName, (a, b) -> a));
+
+        List<ScheduleVO> vos = new ArrayList<>(list.size());
+        for (ShiftSchedule s : list) {
+            ScheduleVO vo = new ScheduleVO();
+            vo.setId(s.getId());
+            vo.setUserId(s.getUserId());
+            User u = users.get(s.getUserId());
+            vo.setRealName(u == null ? null : u.getRealName());
+            vo.setWorkNumber(u == null ? null : u.getWorkNumber());
+            vo.setScheduleDate(s.getScheduleDate());
+            vo.setShiftId(s.getShiftId());
+            vo.setShiftName(shiftNames.get(s.getShiftId()));
+            vo.setDayType(s.getDayType());
+            vo.setSettled(s.getSettled());
+            vos.add(vo);
+        }
+        return vos;
+    }
+
+    // ==================================================================
+    // 打卡与查询
+    // ==================================================================
+
+    @Override
+    public TodayAttendanceVO today() {
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        LocalDate date = LocalDate.now();
+        TodayAttendanceVO vo = new TodayAttendanceVO();
+        vo.setDate(date);
+
+        ShiftSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getUserId, userId)
+                .eq(ShiftSchedule::getScheduleDate, date)
+                .last("LIMIT 1"));
+        if (schedule == null || schedule.getShiftId() == null) {
+            // 未排班 / 休息日：不产生考勤记录，前端不展示打卡按钮
+            vo.setScheduled(false);
+            vo.setCanClockIn(false);
+            vo.setCanClockOut(false);
+            return vo;
+        }
+        Shift shift = shiftMapper.selectById(schedule.getShiftId());
+        vo.setScheduled(true);
+        if (shift != null) {
+            vo.setShiftName(shift.getShiftName());
+            vo.setWorkStart(shift.getWorkStart());
+            vo.setWorkEnd(shift.getWorkEnd());
+        }
+        Attendance attendance = findAttendance(userId, date);
+        if (attendance != null) {
+            vo.setCheckInTime(attendance.getCheckInTime());
+            vo.setCheckOutTime(attendance.getCheckOutTime());
+            vo.setAttendanceStatus(attendance.getAttendanceStatus());
+            vo.setAttendanceStatusLabel(statusLabel(attendance.getAttendanceStatus()));
+            vo.setLateMinutes(attendance.getLateMinutes());
+            vo.setEarlyMinutes(attendance.getEarlyMinutes());
+            if (attendance.getCheckInTime() != null && attendance.getCheckOutTime() != null) {
+                vo.setWorkedMinutes(Duration.between(attendance.getCheckInTime(),
+                        attendance.getCheckOutTime()).toMinutes());
+            }
+        }
+        vo.setCanClockIn(attendance == null || attendance.getCheckInTime() == null);
+        vo.setCanClockOut((attendance != null && attendance.getCheckInTime() != null
+                && attendance.getCheckOutTime() == null));
+        return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void clock(ClockRequest request) {
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        LocalDate date = LocalDate.now();
+        ShiftSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getUserId, userId)
+                .eq(ShiftSchedule::getScheduleDate, date)
+                .last("LIMIT 1"));
+        if (schedule == null || schedule.getShiftId() == null) {
+            throw new BizException(ErrorCode.HR_ATTENDANCE_NOT_SCHEDULED);
+        }
+        Shift shift = shiftMapper.selectById(schedule.getShiftId());
+        if (shift == null) {
+            throw new BizException(ErrorCode.HR_ATTENDANCE_NOT_SCHEDULED);
+        }
+
+        Attendance attendance = findAttendance(userId, date);
+        if (attendance == null) {
+            attendance = new Attendance();
+            attendance.setUserId(userId);
+            attendance.setAttendanceDate(date);
+            attendance.setShiftId(shift.getId());
+            if (request.getDirection() == 1) {
+                attendance.setCheckInTime(LocalDateTime.now());
+                attendance.setCheckInLocation(request.getLocation());
+                attendance.setCheckInSource(1);
+            } else {
+                attendance.setCheckOutTime(LocalDateTime.now());
+                attendance.setCheckOutLocation(request.getLocation());
+                attendance.setCheckOutSource(1);
+            }
+            applyStatus(attendance, shift, date);
+            attendanceMapper.insert(attendance);
+            return;
+        }
+        if (request.getDirection() == 1) {
+            if (attendance.getCheckInTime() != null) {
+                throw new BizException(ErrorCode.HR_ATTENDANCE_ALREADY_CLOCKED, "今日已打过上班卡");
+            }
+            attendance.setCheckInTime(LocalDateTime.now());
+            attendance.setCheckInLocation(request.getLocation());
+            attendance.setCheckInSource(1);
+        } else {
+            if (attendance.getCheckOutTime() != null) {
+                throw new BizException(ErrorCode.HR_ATTENDANCE_ALREADY_CLOCKED, "今日已打过下班卡");
+            }
+            if (attendance.getCheckInTime() == null) {
+                throw new BizException(ErrorCode.BAD_REQUEST, "请先打上班卡");
+            }
+            attendance.setCheckOutTime(LocalDateTime.now());
+            attendance.setCheckOutLocation(request.getLocation());
+            attendance.setCheckOutSource(1);
+        }
+        attendance.setShiftId(shift.getId());
+        applyStatus(attendance, shift, date);
+        attendanceMapper.updateById(attendance);
+    }
+
+    @Override
+    @DataScope
+    public PageResult<AttendanceVO> page(AttendancePageQuery query) {
+        YearMonth ym = parseMonth(query.getMonth());
+        int pageNo = query.getPageNo() == null || query.getPageNo() < 1 ? 1 : query.getPageNo();
+        int pageSize = query.getPageSize() == null || query.getPageSize() < 1 ? 10 : query.getPageSize();
+
+        LambdaQueryWrapper<Attendance> wrapper = new LambdaQueryWrapper<Attendance>()
+                .between(Attendance::getAttendanceDate, ym.atDay(1), ym.atEndOfMonth())
+                .orderByDesc(Attendance::getAttendanceDate)
+                .orderByAsc(Attendance::getUserId);
+        applyUserScope(wrapper);
+        if (query.getUserId() != null) {
+            wrapper.eq(Attendance::getUserId, query.getUserId());
+        }
+        if (query.getDeptId() != null) {
+            List<Long> ids = userMapper.selectList(new LambdaQueryWrapper<User>()
+                            .select(User::getId)
+                            .in(User::getDeptId, hrDataScopeSupport.subtreeIds(query.getDeptId())))
+                    .stream().map(User::getId).toList();
+            if (ids.isEmpty()) {
+                return PageResult.empty((long) pageNo, (long) pageSize);
+            }
+            wrapper.in(Attendance::getUserId, ids);
+        }
+        if (query.getAttendanceStatus() != null) {
+            wrapper.eq(Attendance::getAttendanceStatus, query.getAttendanceStatus());
+        }
+        if (StringUtils.hasText(query.getKeyword())) {
+            String kw = query.getKeyword().trim();
+            List<Long> ids = userMapper.selectList(new LambdaQueryWrapper<User>()
+                            .select(User::getId)
+                            .and(w -> w.like(User::getRealName, kw).or().like(User::getWorkNumber, kw)))
+                    .stream().map(User::getId).toList();
+            if (ids.isEmpty()) {
+                return PageResult.empty((long) pageNo, (long) pageSize);
+            }
+            wrapper.in(Attendance::getUserId, ids);
+        }
+
+        Page<Attendance> page = attendanceMapper.selectPage(new Page<>(pageNo, pageSize), wrapper);
+        return PageResult.of(toAttendanceVOs(page.getRecords()), page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    @Override
+    public List<AttendanceVO> myMonth(String month) {
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        YearMonth ym = parseMonth(month);
+        List<Attendance> list = attendanceMapper.selectList(new LambdaQueryWrapper<Attendance>()
+                .eq(Attendance::getUserId, userId)
+                .between(Attendance::getAttendanceDate, ym.atDay(1), ym.atEndOfMonth())
+                .orderByAsc(Attendance::getAttendanceDate));
+        return toAttendanceVOs(list);
+    }
+
+    // ==================================================================
+    // 汇总与结算
+    // ==================================================================
+
+    @Override
+    @DataScope
+    public PageResult<AttendanceMonthVO> pageMonth(String month, Long deptId, Integer pageNo, Integer pageSize) {
+        YearMonth ym = parseMonth(month);
+        int no = pageNo == null || pageNo < 1 ? 1 : pageNo;
+        int size = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        String monthText = ym.format(MONTH_FORMAT);
+
+        LambdaQueryWrapper<AttendanceMonth> wrapper = new LambdaQueryWrapper<AttendanceMonth>()
+                .eq(AttendanceMonth::getMonth, monthText)
+                .orderByAsc(AttendanceMonth::getUserId);
+        List<Long> visible = visibleUserIds();
+        if (visible != null) {
+            if (visible.isEmpty()) {
+                return PageResult.empty((long) no, (long) size);
+            }
+            wrapper.in(AttendanceMonth::getUserId, visible);
+        }
+        if (deptId != null) {
+            List<Long> ids = userMapper.selectList(new LambdaQueryWrapper<User>()
+                            .select(User::getId)
+                            .in(User::getDeptId, hrDataScopeSupport.subtreeIds(deptId)))
+                    .stream().map(User::getId).toList();
+            if (ids.isEmpty()) {
+                return PageResult.empty((long) no, (long) size);
+            }
+            wrapper.in(AttendanceMonth::getUserId, ids);
+        }
+        Page<AttendanceMonth> page = monthMapper.selectPage(new Page<>(no, size), wrapper);
+        return PageResult.of(toMonthVOs(page.getRecords()), page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int settleDate(LocalDate date, boolean force) {
+        LambdaQueryWrapper<ShiftSchedule> wrapper = new LambdaQueryWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getScheduleDate, date);
+        if (!force) {
+            wrapper.eq(ShiftSchedule::getSettled, 0);
+        }
+        List<ShiftSchedule> schedules = scheduleMapper.selectList(wrapper);
+        if (schedules.isEmpty()) {
+            return 0;
+        }
+        int handled = 0;
+        for (ShiftSchedule schedule : schedules) {
+            Shift shift = schedule.getShiftId() == null ? null : shiftMapper.selectById(schedule.getShiftId());
+            if (shift == null) {
+                // 休息日 / 法定节假日：不产生考勤记录，只把排班标记为已处理
+                ShiftSchedule patch = new ShiftSchedule();
+                patch.setId(schedule.getId());
+                patch.setSettled(1);
+                scheduleMapper.updateById(patch);
+                continue;
+            }
+            Attendance attendance = findAttendance(schedule.getUserId(), date);
+            if (attendance == null) {
+                attendance = new Attendance();
+                attendance.setUserId(schedule.getUserId());
+                attendance.setAttendanceDate(date);
+                attendance.setShiftId(shift.getId());
+                applyStatus(attendance, shift, date);
+                attendance.setSettled(1);
+                attendanceMapper.insert(attendance);
+            } else {
+                attendance.setShiftId(shift.getId());
+                applyStatus(attendance, shift, date);
+                attendance.setSettled(1);
+                attendanceMapper.updateById(attendance);
+            }
+            ShiftSchedule patch = new ShiftSchedule();
+            patch.setId(schedule.getId());
+            patch.setSettled(1);
+            scheduleMapper.updateById(patch);
+            handled++;
+        }
+        return handled;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int settleMonth(String month) {
+        YearMonth ym = parseMonth(month);
+        String text = ym.format(MONTH_FORMAT);
+        LocalDate start = ym.atDay(1);
+        LocalDate end = ym.atEndOfMonth();
+
+        List<ShiftSchedule> schedules = scheduleMapper.selectList(new LambdaQueryWrapper<ShiftSchedule>()
+                .between(ShiftSchedule::getScheduleDate, start, end));
+        List<Attendance> attendances = attendanceMapper.selectList(new LambdaQueryWrapper<Attendance>()
+                .between(Attendance::getAttendanceDate, start, end));
+
+        Map<Long, BigDecimal> shouldDays = new HashMap<>();
+        for (ShiftSchedule s : schedules) {
+            if (s.getShiftId() != null) {
+                shouldDays.merge(s.getUserId(), BigDecimal.ONE, BigDecimal::add);
+            }
+        }
+        Map<Long, List<Attendance>> byUser = attendances.stream()
+                .collect(Collectors.groupingBy(Attendance::getUserId));
+
+        Set<Long> userIds = new HashSet<>(shouldDays.keySet());
+        userIds.addAll(byUser.keySet());
+
+        int count = 0;
+        for (Long userId : userIds) {
+            AttendanceMonth existing = monthMapper.selectOne(new LambdaQueryWrapper<AttendanceMonth>()
+                    .eq(AttendanceMonth::getUserId, userId)
+                    .eq(AttendanceMonth::getMonth, text)
+                    .last("LIMIT 1"));
+            // 已封账的月份绝不覆盖：封账的意义就是「结果不能再变」
+            if (existing != null && Objects.equals(existing.getStatus(), 2)) {
+                continue;
+            }
+            List<Attendance> mine = byUser.getOrDefault(userId, List.of());
+            BigDecimal actual = BigDecimal.ZERO;
+            BigDecimal absent = BigDecimal.ZERO;
+            int late = 0;
+            int early = 0;
+            int missing = 0;
+            for (Attendance a : mine) {
+                if (a.getCheckInTime() != null) {
+                    actual = actual.add(BigDecimal.ONE);
+                }
+                if (Objects.equals(a.getAttendanceStatus(), STATUS_ABSENT)) {
+                    absent = absent.add(BigDecimal.ONE);
+                }
+                if (Objects.equals(a.getAttendanceStatus(), STATUS_LATE)) {
+                    late++;
+                }
+                if (Objects.equals(a.getAttendanceStatus(), STATUS_EARLY)) {
+                    early++;
+                }
+                if (a.getCardMissing() != null && a.getCardMissing() > 0) {
+                    missing++;
+                }
+            }
+            AttendanceMonth entity = existing == null ? new AttendanceMonth() : existing;
+            entity.setUserId(userId);
+            entity.setMonth(text);
+            entity.setShouldDays(shouldDays.getOrDefault(userId, BigDecimal.ZERO));
+            entity.setActualDays(actual);
+            entity.setLateCount(late);
+            entity.setEarlyCount(early);
+            entity.setAbsentDays(absent);
+            entity.setMissingCount(missing);
+            entity.setStatus(1);
+            if (existing == null) {
+                monthMapper.insert(entity);
+            } else {
+                monthMapper.updateById(entity);
+            }
+            count++;
+        }
+        log.info("月度考勤汇总完成: month={} users={}", text, count);
+        return count;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int rebuild(String month) {
+        YearMonth ym = parseMonth(month);
+        int days = 0;
+        for (LocalDate date = ym.atDay(1); !date.isAfter(ym.atEndOfMonth()); date = date.plusDays(1)) {
+            days += settleDate(date, true);
+        }
+        int users = settleMonth(month);
+        log.info("考勤重算完成: month={} days={} users={}", month, days, users);
+        return days + users;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void lockMonth(String month) {
+        String text = parseMonth(month).format(MONTH_FORMAT);
+        List<AttendanceMonth> list = monthMapper.selectList(new LambdaQueryWrapper<AttendanceMonth>()
+                .eq(AttendanceMonth::getMonth, text));
+        if (list.isEmpty()) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "该月暂无考勤汇总，请先执行月结");
+        }
+        Long operator = SecurityContextUtil.getCurrentUserId();
+        for (AttendanceMonth m : list) {
+            if (Objects.equals(m.getStatus(), 2)) {
+                continue;
+            }
+            AttendanceMonth patch = new AttendanceMonth();
+            patch.setId(m.getId());
+            patch.setStatus(2);
+            patch.setLockTime(LocalDateTime.now());
+            patch.setLockBy(operator);
+            monthMapper.updateById(patch);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void unlockMonth(String month, String reason) {
+        if (!StringUtils.hasText(reason)) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "解封必须填写原因");
+        }
+        String text = parseMonth(month).format(MONTH_FORMAT);
+        List<AttendanceMonth> list = monthMapper.selectList(new LambdaQueryWrapper<AttendanceMonth>()
+                .eq(AttendanceMonth::getMonth, text));
+        for (AttendanceMonth m : list) {
+            AttendanceMonth patch = new AttendanceMonth();
+            patch.setId(m.getId());
+            patch.setStatus(1);
+            monthMapper.updateById(patch);
+        }
+        log.warn("考勤月份解封: month={} reason={} operator={}", text, reason,
+                SecurityContextUtil.getCurrentUserId());
+    }
+
+    // ==================================================================
+    // 内部方法
+    // ==================================================================
+
+    /**
+     * 根据打卡情况计算状态、迟到/早退分钟与缺卡标记。
+     *
+     * <p><b>只缺一次卡不判缺勤</b>：标 {@code card_missing} 并落正常/迟到/早退，
+     * 等补卡通过后重算。把「少打一次卡」直接算旷工会误扣工资，是最常见的实现错误。</p>
+     */
+    private void applyStatus(Attendance attendance, Shift shift, LocalDate date) {
+        LocalDateTime start = LocalDateTime.of(date, shift.getWorkStart());
+        LocalDateTime end = LocalDateTime.of(date, shift.getWorkEnd());
+        if (!shift.getWorkEnd().isAfter(shift.getWorkStart())) {
+            // 跨天班次：下班时间落在次日
+            end = end.plusDays(1);
+        }
+
+        // 工作时长：两端都有才算，负值归零
+        if (attendance.getCheckInTime() != null && attendance.getCheckOutTime() != null) {
+            long minutes = Duration.between(attendance.getCheckInTime(), attendance.getCheckOutTime()).toMinutes()
+                    - (shift.getRestMinutes() == null ? 0 : shift.getRestMinutes());
+            if (minutes < 0) {
+                minutes = 0;
+            }
+            attendance.setWorkDuration(BigDecimal.valueOf(minutes)
+                    .divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP));
+        }
+
+        if (lead(shift.getFlexible()) == 1) {
+            // 弹性班：不判迟到早退，只记工时
+            attendance.setAttendanceStatus(STATUS_NORMAL);
+            attendance.setLateMinutes(0);
+            attendance.setEarlyMinutes(0);
+            attendance.setCardMissing(attendance.getCheckInTime() == null && attendance.getCheckOutTime() == null
+                    ? 3 : (attendance.getCheckInTime() == null ? 1
+                    : (attendance.getCheckOutTime() == null ? 2 : 0)));
+            return;
+        }
+
+        int status = STATUS_NORMAL;
+        int lateMinutes = 0;
+        int earlyMinutes = 0;
+        int missing = 0;
+
+        if (attendance.getCheckInTime() == null) {
+            missing = 1;
+        } else {
+            long diff = Duration.between(start, attendance.getCheckInTime()).toMinutes();
+            if (diff > (shift.getLateGrace() == null ? 0 : shift.getLateGrace())) {
+                lateMinutes = (int) diff;
+                status = STATUS_LATE;
+            }
+        }
+        if (attendance.getCheckOutTime() == null) {
+            missing = missing == 1 ? 3 : 2;
+        } else {
+            long diff = Duration.between(attendance.getCheckOutTime(), end).toMinutes();
+            if (diff > (shift.getEarlyGrace() == null ? 0 : shift.getEarlyGrace())) {
+                earlyMinutes = (int) diff;
+                if (status == STATUS_NORMAL) {
+                    status = STATUS_EARLY;
+                }
+            }
+        }
+        // 两次都没打卡且当天没有任何记录 → 缺勤
+        if (attendance.getCheckInTime() == null && attendance.getCheckOutTime() == null) {
+            status = STATUS_ABSENT;
+            missing = 3;
+        }
+        attendance.setAttendanceStatus(status);
+        attendance.setLateMinutes(lateMinutes);
+        attendance.setEarlyMinutes(earlyMinutes);
+        attendance.setCardMissing(missing);
+    }
+
+    /** 数据范围 → 用户ID列表；返回 null 表示不受限（全部数据） */
+    private List<Long> visibleUserIds() {
+        if (hrDataScopeSupport.isUnrestricted()) {
+            return null;
+        }
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        hrDataScopeSupport.applyToUser(wrapper);
+        return userMapper.selectList(wrapper.select(User::getId)).stream().map(User::getId).toList();
+    }
+
+    /** 把数据范围直接拼到考勤查询上（按 user_id 收敛） */
+    private void applyUserScope(LambdaQueryWrapper<Attendance> wrapper) {
+        List<Long> ids = visibleUserIds();
+        if (ids == null) {
+            return;
+        }
+        if (ids.isEmpty()) {
+            wrapper.apply("1 = 0");
+            return;
+        }
+        wrapper.in(Attendance::getUserId, ids);
+    }
+
+    private Attendance findAttendance(Long userId, LocalDate date) {
+        return attendanceMapper.selectOne(new LambdaQueryWrapper<Attendance>()
+                .eq(Attendance::getUserId, userId)
+                .eq(Attendance::getAttendanceDate, date)
+                .last("LIMIT 1"));
+    }
+
+    private List<AttendanceVO> toAttendanceVOs(List<Attendance> list) {
+        if (list == null || list.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, User> users = userMapper.selectBatchIds(list.stream()
+                        .map(Attendance::getUserId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        Map<Long, String> deptNames = departmentMapper.selectList(new LambdaQueryWrapper<Department>()
+                        .select(Department::getId, Department::getDeptName))
+                .stream().collect(Collectors.toMap(Department::getId, Department::getDeptName, (a, b) -> a));
+        Map<Long, String> shiftNames = shiftMapper.selectList(null).stream()
+                .collect(Collectors.toMap(Shift::getId, Shift::getShiftName, (a, b) -> a));
+
+        List<AttendanceVO> vos = new ArrayList<>(list.size());
+        for (Attendance a : list) {
+            AttendanceVO vo = new AttendanceVO();
+            vo.setId(a.getId());
+            vo.setUserId(a.getUserId());
+            User u = users.get(a.getUserId());
+            if (u != null) {
+                vo.setRealName(u.getRealName());
+                vo.setWorkNumber(u.getWorkNumber());
+                vo.setDeptId(u.getDeptId());
+                vo.setDeptName(deptNames.get(u.getDeptId()));
+            }
+            vo.setAttendanceDate(a.getAttendanceDate());
+            vo.setCheckInTime(a.getCheckInTime());
+            vo.setCheckOutTime(a.getCheckOutTime());
+            vo.setCheckInLocation(a.getCheckInLocation());
+            vo.setCheckOutLocation(a.getCheckOutLocation());
+            vo.setWorkDuration(a.getWorkDuration());
+            vo.setAttendanceStatus(a.getAttendanceStatus());
+            vo.setAttendanceStatusLabel(statusLabel(a.getAttendanceStatus()));
+            vo.setLateMinutes(a.getLateMinutes());
+            vo.setEarlyMinutes(a.getEarlyMinutes());
+            vo.setCardMissing(a.getCardMissing());
+            vo.setShiftName(shiftNames.get(a.getShiftId()));
+            vo.setSettled(a.getSettled());
+            vo.setRemark(a.getRemark());
+            vos.add(vo);
+        }
+        return vos;
+    }
+
+    private List<AttendanceMonthVO> toMonthVOs(List<AttendanceMonth> list) {
+        if (list == null || list.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, User> users = userMapper.selectBatchIds(list.stream()
+                        .map(AttendanceMonth::getUserId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        Map<Long, String> deptNames = departmentMapper.selectList(new LambdaQueryWrapper<Department>()
+                        .select(Department::getId, Department::getDeptName))
+                .stream().collect(Collectors.toMap(Department::getId, Department::getDeptName, (a, b) -> a));
+        List<AttendanceMonthVO> vos = new ArrayList<>(list.size());
+        for (AttendanceMonth m : list) {
+            AttendanceMonthVO vo = new AttendanceMonthVO();
+            vo.setId(m.getId());
+            vo.setUserId(m.getUserId());
+            User u = users.get(m.getUserId());
+            if (u != null) {
+                vo.setRealName(u.getRealName());
+                vo.setWorkNumber(u.getWorkNumber());
+                vo.setDeptId(u.getDeptId());
+                vo.setDeptName(deptNames.get(u.getDeptId()));
+            }
+            vo.setMonth(m.getMonth());
+            vo.setShouldDays(m.getShouldDays());
+            vo.setActualDays(m.getActualDays());
+            vo.setLateCount(m.getLateCount());
+            vo.setEarlyCount(m.getEarlyCount());
+            vo.setAbsentDays(m.getAbsentDays());
+            vo.setMissingCount(m.getMissingCount());
+            vo.setTripDays(m.getTripDays());
+            vo.setStatus(m.getStatus());
+            vo.setLockTime(m.getLockTime());
+            vos.add(vo);
+        }
+        return vos;
+    }
+
+    private static YearMonth parseMonth(String month) {
+        if (!StringUtils.hasText(month)) {
+            return YearMonth.now();
+        }
+        try {
+            return YearMonth.parse(month.trim(), MONTH_FORMAT);
+        } catch (DateTimeParseException e) {
+            throw new BizException(ErrorCode.BAD_REQUEST, "月份格式应为 yyyy-MM");
+        }
+    }
+
+    private static String standardHours(Shift shift) {
+        if (shift.getWorkStart() == null || shift.getWorkEnd() == null) {
+            return null;
+        }
+        LocalDateTime start = LocalDateTime.of(LocalDate.now(), shift.getWorkStart());
+        LocalDateTime end = LocalDateTime.of(LocalDate.now(), shift.getWorkEnd());
+        if (!end.isAfter(start)) {
+            end = end.plusDays(1);
+        }
+        long minutes = Duration.between(start, end).toMinutes()
+                - (shift.getRestMinutes() == null ? 0 : shift.getRestMinutes());
+        return BigDecimal.valueOf(Math.max(minutes, 0))
+                .divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private static String statusLabel(Integer status) {
+        if (status == null) {
+            return null;
+        }
+        return switch (status) {
+            case 1 -> "正常";
+            case 2 -> "迟到";
+            case 3 -> "早退";
+            case 4 -> "缺勤";
+            case 5 -> "假勤";
+            default -> "未知";
+        };
+    }
+
+    private static int lead(Integer value) {
+        return value == null ? 0 : value;
+    }
+}
