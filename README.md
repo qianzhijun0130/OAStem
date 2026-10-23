@@ -53,11 +53,11 @@ OAStem/
 │  │  └─ workflow/                   # 流程定义、审批、抄送、节点权限、条件分支
 │  ├─ src/main/resources/            # 配置、BPMN 种子流程
 │  └─ 数据库/                         # 模块级建表与菜单补丁脚本
-├─ vue3-admin-template/              # 前端（Vue 3 + Vite）
-│  └─ src/{api,components,composables,layout,router,stores,utils,views}
-├─ 开发文档/                          # 设计文档、操作日志、数据库脚本
-└─ 测试文档/                          # 分模块测试用例与执行记录
+└─ vue3-admin-template/              # 前端（Vue 3 + Vite）
+   └─ src/{api,components,composables,layout,router,stores,utils,views}
 ```
+
+> 开发过程资料（设计说明、操作日志、测试用例）只在本地留存，已加入 `.gitignore` 不再入库。
 
 ---
 
@@ -77,8 +77,8 @@ OAStem/
 mysql -uroot -p -e "CREATE DATABASE oa_system DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 
 # 基础表结构与初始数据
-mysql -uroot -p oa_system < 开发文档/数据库/oa_system_init.sql
-mysql -uroot -p oa_system < 开发文档/数据库/oa_system_init_data.sql
+mysql -uroot -p oa_system < oa-system/数据库/oa_system_init.sql
+mysql -uroot -p oa_system < oa-system/数据库/oa_system_init_data.sql
 
 # 模块补丁（流程、表单、节点表单与字段权限、条件分支、字典、抄送）
 cd oa-system/数据库
@@ -180,28 +180,64 @@ npm run dev
 - 业务表 **40** 张（`oa_*`）
 - Flowable 引擎表 **36** 张（`ACT_*` / `FLW_*`，首次启动自动创建）
 
-表结构以 `开发文档/数据库/oa_system_init.sql` 为主，后续模块变更见 `oa-system/数据库/*.sql` 与 `开发文档/操作日志/数据库操作日志.md`。
+表结构以 `oa-system/数据库/oa_system_init.sql` 为主（全量建库），后续模块变更见同目录下的 `*_tables.sql` / `*_menu.sql` 补丁。
 
 ---
 
-## 文档
+## 开发资料
 
-| 文档 | 内容 |
+设计说明、操作日志与测试用例属于开发过程产物，**不随仓库分发**（见 `.gitignore`）。仓库内保留的文档只有：
+
+| 文件 | 内容 |
 | --- | --- |
-| `开发文档/权限体系详解.md` | RBAC、数据权限、权限码校验机制 |
-| `开发文档/Redis缓存与登出黑名单.md` | 缓存点、key 规范、降级策略、扩展方式 |
-| `开发文档/前端/组件-ListPage与useListQuery.md` | 列表页骨架与分页约定 |
-| `开发文档/数据库/` | 各业务模块表设计说明 |
-| `开发文档/操作日志/` | 后端 / 前端 / 数据库 / 项目评估 四份变更日志 |
-| `测试文档/` | M01~M13 分模块测试用例与执行记录 |
+| `README.md` | 本文件：技术栈、模块、启动方式、默认账号 |
+| `oa-system/数据库/*.sql` | 建库脚本与各模块补丁，可直接执行 |
 
 ---
+
+## Redis 高可用（主从 + 哨兵）
+
+默认仍是单机 Redis（不启动也能跑，按降级策略处理）。需要高可用时：
+
+```bash
+# 1) 起主从 + 三哨兵（Win 脚本；端口 6381/6382 + 2638x，刻意避开可能被别的项目占用的 6379）
+deploy/redis/start-ha.ps1
+
+# 2) 以哨兵 profile 启动后端
+./mvnw spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=local,redis-ha"
+```
+
+- 拓扑、故障切换演练步骤、生产注意事项见 [`deploy/redis/README.md`](deploy/redis/README.md)；
+- 切换窗口内 `RedisGuard` 按既有约定降级不阻断（黑名单放行 / 缓存回源 / 限流关闭），切换完成后自动重连；
+- 启动日志会打印当前拓扑与节点角色（`role master|slave`），便于确认连到了谁。
+
+> ⚠️ 本机 Redis 为 3.0.504，配置只能用 `slaveof` / `slave-read-only`；`replicaof` 是 5.0 起的写法，3.0 会直接启动失败。
+
+## 在线用户与强制下线
+
+「系统管理 → 在线用户」列出当前登录会话（数据源为 Redis 会话快照，TTL 与令牌一致），可对指定用户**强制下线**：
+
+- 失效语义：该用户「踢出时刻之前签发」的全部令牌立即失效（`iatMs` 毫秒级比较），重新登录即可继续使用；
+- 权限码：`system:online:list` / `system:online:kick`（仅超管，见 `oa-system/数据库/online_menu.sql`）；
+- 异常分支：踢自己 → 1115；用户已不在线 → 1114；Redis 不可用 → 1116（**不会假报成功**）；
+- 被踢用户的旧令牌访问任何接口都会返回 401，且文案为「账号已被管理员强制下线，请重新登录」。
+
+## 前端单元测试
+
+```bash
+cd vue3-admin-template
+npm run test        # Vitest 单跑一次
+npm run test:watch  # 监听模式
+```
+
+Vitest + @vue/test-utils + jsdom，配置见 `vitest.config.ts`（独立于 `vite.config.ts`）。
+当前覆盖：图标注册表与历史 EP 名回落、按钮文案 → 图标映射的**顺序语义**、内置头像注册表契约、`AppIcon` 三种渲染分支、异步兜底日志前缀。
 
 ## 已知限制
 
-- 单机部署，未做集群、分布式会话与读写分离。
-- Redis 为单实例，无主从/哨兵；不可用时按上述策略降级。
+- 单机部署，未做应用层集群与分布式会话（会话状态在 Redis，扩多实例时可直接共享）。
+- Redis 提供了主从 + 哨兵方案（见上节），但默认未启用；生产需按 `deploy/redis/README.md` 的清单加固（AOF、认证、跨机部署）。
 - 抄送仅做告知，不产生待办、不影响流程流转。
-- 管理员无法强制下线在线用户（只能停用账号或等待令牌过期）。
-- 前端只有开发与构建脚本，未引入单元测试；后端以接口级脚本与浏览器自动化验证为主。
+- 在线用户按「一人一会话」处理：同一账号多端登录只保留最后一条，踢出也是按人踢。
+- 前端单元测试覆盖的是工具函数与基础组件，页面级交互仍以浏览器自动化脚本验证。
 - 项目定位为学习与展示，未经过生产流量验证，部署到公网前需自行加固（HTTPS、密钥轮换、访问审计等）。
