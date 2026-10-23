@@ -9,6 +9,7 @@ import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.hr.attendance.entity.AttendanceMonth;
 import com.kellen.oa_system.hr.attendance.mapper.AttendanceMonthMapper;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
+import com.kellen.oa_system.hr.performance.service.PerfScoreService;
 import com.kellen.oa_system.hr.salary.dto.SalaryAdjustRequest;
 import com.kellen.oa_system.hr.salary.dto.SalaryItemSaveRequest;
 import com.kellen.oa_system.hr.salary.dto.SalaryPageQuery;
@@ -105,6 +106,8 @@ public class SalaryServiceImpl implements SalaryService {
     private final DepartmentMapper departmentMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
     private final ObjectMapper objectMapper;
+    /** 绩效系数来源：只读归档结果，取不到按 1.0 */
+    private final PerfScoreService perfScoreService;
 
     // ==================================================================
     // 薪资项
@@ -390,7 +393,14 @@ public class SalaryServiceImpl implements SalaryService {
 
         BigDecimal base = SalaryCalculator.scale(profile.getBaseSalary());
         BigDecimal post = SalaryCalculator.scale(profile.getPostSalary());
-        BigDecimal perf = SalaryCalculator.scale(profile.getPerfSalary());
+        // 绩效工资 = 档案里的绩效基数 × 当期绩效系数；没有归档结果时按 1.0 并在备注标注，
+        // 绝不因为「绩效还没归档」就把整月工资卡住不发
+        BigDecimal perfCoefficient = perfScoreService.coefficientOf(user.getId(), month);
+        String perfNote = perfCoefficient == null
+                ? "绩效系数按 1.0（本期无归档绩效）"
+                : "绩效系数 " + perfCoefficient.stripTrailingZeros().toPlainString();
+        BigDecimal perf = SalaryCalculator.scale(nz(profile.getPerfSalary())
+                .multiply(Objects.requireNonNullElse(perfCoefficient, BigDecimal.ONE)));
         BigDecimal allow = SalaryCalculator.scale(profile.getAllowance());
         BigDecimal standard = base.add(post).add(perf).add(allow);
 
@@ -479,6 +489,7 @@ public class SalaryServiceImpl implements SalaryService {
         record.setSocialBase(socialBase);
         record.setCumulativeTaxable(taxable);
         record.setStatus(STATUS_DRAFT);
+        record.setRemark(perfNote);
         record.setCalcTime(LocalDateTime.now());
     }
 

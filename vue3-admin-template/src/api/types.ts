@@ -1679,3 +1679,251 @@ export interface SalaryPageQuery {
   pageNo?: number
   pageSize?: number
 }
+
+/* ========== 人力资源：绩效 ========== */
+
+export interface PerfGradeVO {
+  gradeCode: string
+  gradeName: string
+  minScore: number
+  maxScore: number
+  coefficient: number
+  sort?: number
+}
+
+export interface PerfPlanIndicatorVO {
+  indicatorId: number
+  indicatorCode?: string
+  indicatorName?: string
+  indicatorType?: number
+  unit?: string
+  weight: number
+  sort?: number
+}
+
+export interface PerfPlanVO {
+  id: number
+  planCode: string
+  planName: string
+  cycleType: number
+  cycleTypeLabel?: string
+  scoreMode: number
+  deptIds?: string
+  deptNames?: string
+  series?: string
+  forceDistribution: number
+  distributionLimit: number
+  status: number
+  statusLabel?: string
+  remark?: string
+  grades?: PerfGradeVO[]
+  indicators?: PerfPlanIndicatorVO[]
+  weightTotal?: number
+  createTime?: string
+}
+
+export interface PerfPlanSaveRequest {
+  id?: number
+  planCode: string
+  planName: string
+  cycleType?: number
+  scoreMode?: number
+  deptIds?: string
+  series?: string
+  forceDistribution?: number
+  distributionLimit?: number
+  status?: number
+  remark?: string
+  grades?: PerfGradeVO[]
+  indicators?: PerfPlanIndicatorVO[]
+}
+
+export interface PerfIndicatorVO {
+  id: number
+  indicatorCode: string
+  indicatorName: string
+  definition?: string
+  indicatorType: number
+  indicatorTypeLabel?: string
+  unit?: string
+  scoreStandard?: string
+  series?: string
+  status: number
+  remark?: string
+}
+
+export interface PerfIndicatorSaveRequest {
+  id?: number
+  indicatorCode: string
+  indicatorName: string
+  definition?: string
+  indicatorType?: number
+  unit?: string
+  scoreStandard?: string
+  series?: string
+  status?: number
+  remark?: string
+}
+
+export interface PerfCycleVO {
+  id: number
+  cycleCode: string
+  cycleName: string
+  planId: number
+  planName?: string
+  startDate: string
+  endDate: string
+  stage: number
+  stageLabel?: string
+  targetDeadline?: string
+  selfDeadline?: string
+  scoreDeadline?: string
+  calibrateDeadline?: string
+  confirmDeadline?: string
+  status: number
+  sheetCount: number
+  targetDone: number
+  selfDone: number
+  managerDone: number
+  confirmDone: number
+  remark?: string
+}
+
+export interface PerfCycleSaveRequest {
+  id?: number
+  cycleCode: string
+  cycleName: string
+  planId: number
+  startDate: string
+  endDate: string
+  targetDeadline?: string
+  selfDeadline?: string
+  scoreDeadline?: string
+  calibrateDeadline?: string
+  confirmDeadline?: string
+  remark?: string
+}
+
+export interface PerfSheetItemVO {
+  id: number
+  indicatorId?: number
+  indicatorCode: string
+  indicatorName: string
+  indicatorType: number
+  weight: number
+  targetValue?: string
+  measureStandard?: string
+  selfScore?: number
+  selfComment?: string
+  managerScore?: number
+  managerComment?: string
+  finalScore?: number
+  weightedScore?: number
+}
+
+export interface PerfAppealVO {
+  id: number
+  sheetId: number
+  realName?: string
+  reason: string
+  status: number
+  statusLabel?: string
+  handleOpinion?: string
+  handlerName?: string
+  handleTime?: string
+  beforeScore?: number
+  afterScore?: number
+  beforeGrade?: string
+  afterGrade?: string
+  createTime?: string
+}
+
+export interface PerfSheetVO {
+  id: number
+  cycleId: number
+  cycleCode?: string
+  cycleName?: string
+  userId: number
+  realName?: string
+  workNumber?: string
+  deptName?: string
+  positionName?: string
+  leaderName?: string
+  targetStatus: number
+  targetStatusLabel?: string
+  selfStatus: number
+  managerStatus: number
+  calibrateStatus: number
+  confirmStatus: number
+  totalScore?: number
+  gradeCode?: string
+  coefficient?: number
+  selfMissing: number
+  hrScored: number
+  appealStatus?: number
+  remark?: string
+}
+
+export interface PerfSheetDetailVO extends PerfSheetVO {
+  stage: number
+  stageLabel?: string
+  gradeName?: string
+  selfTotal?: number
+  managerTotal?: number
+  managerComment?: string
+  items: PerfSheetItemVO[]
+  appeal?: PerfAppealVO
+}
+
+export interface PerfSheetPageQuery {
+  cycleId?: number
+  deptId?: number
+  stage?: string
+  keyword?: string
+  pageNo?: number
+  pageSize?: number
+}
+
+export interface PerfDistributionVO {
+  dimension: string
+  total: number
+  countA: number
+  countB: number
+  countC: number
+  countD: number
+  avgScore: number
+  aRatio: number
+  overLimit: number
+}
+
+/** 目标设定入参 */
+export interface PerfTargetSaveRequest {
+  sheetId: number
+  items: { itemId: number; targetValue?: string; measureStandard?: string }[]
+}
+
+/** 评分入参（自评 / 上级评分共用） */
+export interface PerfScoreRequest {
+  sheetId: number
+  items: { itemId: number; score?: number; comment?: string }[]
+  comment?: string
+}
+
+export interface PerfCalibrateRequest {
+  sheetId: number
+  score?: number
+  gradeCode?: string
+  reason: string
+}
+
+export interface PerfAppealRequest {
+  sheetId: number
+  reason: string
+}
+
+export interface PerfAppealHandleRequest {
+  appealId: number
+  status: number
+  opinion?: string
+  score?: number
+}

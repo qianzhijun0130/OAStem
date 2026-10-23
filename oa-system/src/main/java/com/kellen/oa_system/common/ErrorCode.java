@@ -147,6 +147,25 @@ public enum ErrorCode {
     HR_SALARY_POLICY_MISSING(6409, "缺少该年度的社保政策，请先在「社保政策」中配置"),
     HR_SALARY_NO_DATA(6410, "该月没有可核算的数据，请先维护薪资档案与考勤月结"),
 
+    // ---------- 业务错误：绩效 65xx ----------
+    PERF_WEIGHT_NOT_100(6501, "指标权重合计必须等于 100%"),
+    PERF_INDICATOR_DUPLICATE(6502, "指标编码已存在"),
+    PERF_PLAN_NOT_FOUND(6503, "绩效方案不存在"),
+    PERF_CYCLE_STAGE_INVALID(6504, "当前阶段不允许该操作"),
+    PERF_TARGET_NOT_LOCKED(6505, "目标尚未审核通过，不能进入自评"),
+    PERF_SHEET_NOT_FOUND(6506, "考核表不存在"),
+    PERF_NOT_LEADER(6507, "只有直属上级或人事可以评分"),
+    PERF_SCORE_OUT_OF_RANGE(6508, "分数超出允许范围"),
+    PERF_CALIBRATE_REASON_REQUIRED(6509, "校准调整必须填写理由"),
+    PERF_APPEAL_DUPLICATE(6510, "该考核表已提交过申诉，只能申诉一次"),
+    PERF_APPEAL_WINDOW_CLOSED(6511, "已超过申诉期限（结果确认后 5 个工作日内）"),
+    PERF_ARCHIVED_READONLY(6512, "该周期已归档，结果只读"),
+    PERF_CYCLE_DATE_OVERLAP(6513, "同方案下周期日期不能重叠"),
+    PERF_PLAN_IN_USE(6514, "方案已被周期引用，不能删除，可改为停用"),
+    PERF_NO_SHEET(6516, "当期没有你的考核表"),
+    PERF_TARGET_REQUIRED(6517, "请先填写目标值再提交"),
+    PERF_GRADE_MISSING(6518, "方案未配置等级映射，无法定级"),
+
     // ---------- 系统错误 5xxx ----------
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
 
