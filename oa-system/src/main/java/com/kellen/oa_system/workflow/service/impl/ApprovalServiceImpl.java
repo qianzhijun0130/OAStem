@@ -34,6 +34,7 @@ import com.kellen.oa_system.workflow.mapper.ApprovalInstanceMapper;
 import com.kellen.oa_system.workflow.mapper.ApprovalRecordMapper;
 import com.kellen.oa_system.workflow.mapper.FlowDefinitionMapper;
 import com.kellen.oa_system.workflow.service.ApprovalService;
+import com.kellen.oa_system.workflow.callback.ApprovalCallbackRegistry;
 import com.kellen.oa_system.workflow.service.FlowableEngineService;
 import com.kellen.oa_system.workflow.util.BpmnXmlNormalizer;
 import com.kellen.oa_system.workflow.service.NodeFieldPermissionService;
@@ -189,6 +190,9 @@ public class ApprovalServiceImpl implements ApprovalService {
     private int defaultTimeoutHours;
     /** 用于下发发起环节的主表单规则，供审批人在详情页只读渲染 */
     private final NodeFormService nodeFormService;
+
+    /** 审批终态回调分发：业务表（请假/加班/离职…）由各自实现回写，引擎不感知业务 */
+    private final ApprovalCallbackRegistry approvalCallbackRegistry;
     /** 用于下发当前节点的可编辑字段 */
     private final NodeFieldPermissionService fieldPermissionService;
 
@@ -1060,6 +1064,11 @@ public class ApprovalServiceImpl implements ApprovalService {
                 // 流程结束不再有「当前节点」，超时计时一并清空
                 .set(ApprovalInstance::getDueTime, null)
                 .set(ApprovalInstance::getUpdateTime, LocalDateTime.now()));
+        // 业务回写：在同一事务内分发，回调失败会让审批动作一起回滚，
+        // 避免「审批通过了但业务表还是审批中」；实例对象上的状态同步更新供回调判断
+        inst.setStatus(finalStatus);
+        inst.setCurrentNode(null);
+        approvalCallbackRegistry.dispatch(inst, finalStatus);
     }
 
     @Override
