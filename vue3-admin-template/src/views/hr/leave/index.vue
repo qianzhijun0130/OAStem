@@ -46,7 +46,9 @@ const BIZ_TABS = [
 ]
 
 const activeTab = ref('quota')
-const year = ref(new Date().getFullYear())
+// 年份选择器用字符串（value-format="YYYY" 期待 string），调接口时再转数字，
+// 否则选择器会显示空白、用户以为没选年份
+const year = ref(String(new Date().getFullYear()))
 
 function statusMeta(status?: number) {
   return LEAVE_STATUS.find((s) => s.value === status) || { label: '-', type: 'info' as const }
@@ -64,7 +66,7 @@ const quotaLoading = ref(false)
 async function loadQuota() {
   quotaLoading.value = true
   try {
-    quotas.value = (await getMyLeaveQuotaApi(year.value)) || []
+    quotas.value = (await getMyLeaveQuotaApi(Number(year.value))) || []
   } catch (error) {
     logAsyncError('loadMyQuota', error)
   } finally {
@@ -91,7 +93,7 @@ async function submitAdjust() {
     await adjustLeaveQuotaApi({
       userId: adjustForm.userId,
       leaveType: adjustForm.leaveType,
-      year: year.value,
+      year: Number(year.value),
       totalDays: adjustForm.totalDays,
       remark: adjustForm.remark,
     })
