@@ -1,0 +1,24 @@
+# ── OAStem Redis 从节点（模板）────────────────────────────────
+# 复制为 runtime/replica-6382.conf 后启动。
+# 关键配置只有一条：slaveof <master-ip> <master-port>（Redis 5.0 起的新名字是 replicaof，
+# 但本机是 3.0.504，只认 slaveof；写 replicaof 会启动失败）。
+
+port 6382
+bind 127.0.0.1
+daemonize no
+
+dir _RUNTIME_/data
+logfile _RUNTIME_/logs/replica-6382.log
+
+save ""
+appendonly no
+
+# 复制主节点；故障切换后 Sentinel 会发送 `SLAVEOF NO ONE` 把它提升为新主节点，
+# 并重写 runtime 里的配置（所以 runtime 目录不入库）
+slaveof 127.0.0.1 6381
+
+# 从节点只读，避免误把从库当主库写入
+slave-read-only yes
+
+# 复制超时与断线重连：值偏小是为了在演练时快速看到「重连成功」
+repl-timeout 60

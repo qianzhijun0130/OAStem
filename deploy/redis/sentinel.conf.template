@@ -1,0 +1,27 @@
+# ── OAStem Redis Sentinel（模板）──────────────────────────────
+# 由 start-ha.ps1 按 _PORT_ 替换端口后复制为 runtime/sentinel-<port>.conf。
+#
+# 三哨兵 + quorum 2 的意义：
+#   - quorum 2：至少 2 个哨兵认为主节点客观下线，才发起故障转移（防单点误判）；
+#   - 3 个哨兵才能承受「挂掉一个仍然能选举」。只起 2 个时，挂 1 个就凑不出多数票，
+#     故障转移会卡住——这是演练时最容易踩的坑。
+
+port _PORT_
+bind 127.0.0.1
+daemonize no
+
+dir _RUNTIME_/data
+logfile _RUNTIME_/logs/sentinel-_PORT_.log
+
+# 监控的主节点：master 名要与 Spring 配置 spring.data.redis.sentinel.master 一致
+sentinel monitor oastem-master 127.0.0.1 6381 2
+
+# 判定「主观下线」的时长：3s 偏激进，仅用于本地演练；生产建议 10s~30s
+sentinel down-after-milliseconds oastem-master 3000
+
+# 故障转移超时；切换完成后同步新主给其余从节点时的并行度
+sentinel failover-timeout oastem-master 10000
+sentinel parallel-syncs oastem-master 1
+
+# 哨兵自身也会写配置（记录 discovered_replicas / 当前 master 版本），
+# 因此 runtime 目录不入库，避免演练后仓库里出现被改写的配置。

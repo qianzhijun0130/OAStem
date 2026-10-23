@@ -184,6 +184,35 @@ public class RedisGuard {
     }
 
     /**
+     * 按前缀扫描 key（READ 类操作，SCAN 实现）。
+     *
+     * <p>用于「在线用户」这类需要枚举全部会话的场景。返回空列表有三种含义——
+     * 真的没有数据、Redis 不可用（降级）、冷却期内跳过；调用方不应据此判断 Redis 健康状态，
+     * 需要区分时先看 {@link #isAvailable()}。</p>
+     */
+    public List<String> scanKeys(String prefix) {
+        if (!acquire()) {
+            return List.of();
+        }
+        try {
+            ScanOptions options = ScanOptions.scanOptions().match(prefix + "*").count(SCAN_BATCH).build();
+            List<String> keys = new ArrayList<>();
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                try (Cursor<byte[]> cursor = connection.scan(options)) {
+                    while (cursor.hasNext()) {
+                        keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                    }
+                }
+                return null;
+            }, true);
+            return keys;
+        } catch (RuntimeException e) {
+            markDown(e);
+            return List.of();
+        }
+    }
+
+    /**
      * 连通性探针：不受冷却期影响，用于启动检查与运维排查。
      *
      * @return 连通返回如 {@code PONG | redis 3.0.504}，失败返回 null
@@ -192,8 +221,17 @@ public class RedisGuard {
         try {
             return redisTemplate.execute((RedisCallback<String>) connection -> {
                 String pong = connection.ping();
+                StringBuilder detail = new StringBuilder(pong);
                 String version = resolveVersion(connection);
-                return version == null ? pong : pong + " | redis " + version;
+                if (version != null) {
+                    detail.append(" | redis ").append(version);
+                }
+                // 主从/哨兵环境下「当前连的是主还是从」是排障第一信息，顺手打出来
+                String role = resolveReplicationRole(connection);
+                if (role != null) {
+                    detail.append(" | role ").append(role);
+                }
+                return detail.toString();
             }, true);
         } catch (RuntimeException e) {
             markDown(e);
@@ -229,6 +267,21 @@ public class RedisGuard {
     }
 
     /** 版本号只是排查用的辅助信息，取不到不影响 ping 结论 */
+    /**
+     * 读取节点角色（master / slave）。
+     *
+     * <p>{@code INFO replication} 在 Redis 3.x 就稳定支持；失败时不抛异常，
+     * 只是少一条附加信息——不能因为拿不到角色信息就把「连接正常」判成失败。</p>
+     */
+    private String resolveReplicationRole(RedisConnection connection) {
+        try {
+            Properties info = connection.serverCommands().info("replication");
+            return info == null ? null : info.getProperty("role");
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     private String resolveVersion(RedisConnection connection) {
         try {
             Properties info = connection.serverCommands().info("server");

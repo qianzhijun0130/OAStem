@@ -1,0 +1,23 @@
+# ── OAStem Redis 主节点（模板）────────────────────────────────
+# 由 start-ha.ps1 复制到 runtime/ 后启动，**不要直接编辑 runtime 里的副本**。
+# 端口故意不用 6379：开发机上 6379 可能被其它项目共用，HA 演练不应干扰它。
+
+port 6381
+bind 127.0.0.1
+daemonize no
+
+# 数据目录与日志由启动脚本通过命令行参数覆盖（--dir / --logfile），
+# 这里给出默认值只为「手工启动也能跑」。
+dir _RUNTIME_/data
+logfile _RUNTIME_/logs/master-6381.log
+
+# 关闭 RDB 自动落盘：本集群只用于演示主从与故障切换，
+# 打开会因多个实例共用目录产生 dump 冲突。
+save ""
+
+appendonly no
+
+# 主节点本身就允许写入，无需 slave-read-only（该指令只对从节点有意义）。
+# ⚠️ 本机 Redis 为 3.0.504，只能用 `slaveof` / `slave-read-only`；
+#    `replicaof` / `replica-read-only` 是 Redis 5.0 才引入的写法，3.0 会直接报
+#    "unknown conf file parameter" 并拒绝启动。
