@@ -98,8 +98,8 @@ public class UniqueIndexReleaseChecker implements ApplicationRunner {
         log.warn("检测到 {} 张表的唯一索引未加逻辑删除保护：{}", risky.size(), risky.values());
         log.warn("影响：软删除后原编码会被占死，同编码无法重建；错误提示对使用者不可理解");
         log.warn("处置：为该表增加生成列 {} TINYINT GENERATED ALWAYS AS (IF(is_deleted = 0, 1, NULL)) VIRTUAL，"
-                + "并把唯一索引改为 (编码, {})。参考 ALTER 语句见 "
-                + "开发文档/数据库/逻辑删除唯一索引企业级改造方案.md", GUARD_COLUMN, GUARD_COLUMN);
+                + "并把唯一索引改为 (编码, {})；可运行的 ALTER 样例见 oa-system/数据库/*.sql",
+                GUARD_COLUMN, GUARD_COLUMN);
     }
 
     /**

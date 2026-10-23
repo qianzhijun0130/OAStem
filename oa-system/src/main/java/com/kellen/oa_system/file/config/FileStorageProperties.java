@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * 文件存储配置。
  *
- * <p>设计原则（见《开发文档/文件上传下载问题.md》）：代码不写死任何盘符或绝对路径，
+ * <p>设计原则：代码不写死任何盘符或绝对路径，
  * 所有与环境相关的内容都收敛到这里。本地开发与服务器部署只改 {@code file.base-path}，
  * 换成云存储只改 {@code file.storage-type} 并新增一个 {@code FileStorageService} 实现类。</p>
  */

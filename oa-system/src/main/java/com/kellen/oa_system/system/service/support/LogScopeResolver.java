@@ -25,8 +25,7 @@ import java.util.Set;
  * 两者无法用同一套列去过滤。{@code applyTo} 要求目标表自带「部门列 + 主键列」，日志表两个都没有。
  * 因此这里先把范围解析成 <b>可见 user_id 集合</b>，再由业务方以 {@code user_id IN (...)} 落进查询。</p>
  *
- * <p><b>三档口径</b>（由角色体系与用户-部门归属关系推导，见
- * {@code 开发文档/角色管理/2026-10-04-02.md}）：</p>
+ * <p><b>三档口径</b>（由角色体系与用户-部门归属关系推导）：</p>
  * <ol>
  *   <li><b>超级管理员</b> → 不限。判定依据是数据范围为 {@code ALL}
  *       （{@code DataScopeSupport#prepare} 中只有持有 {@code SUPER_ADMIN} 才会得到 ALL）；</li>

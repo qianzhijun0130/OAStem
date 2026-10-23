@@ -228,7 +228,7 @@ public class UserServiceImpl implements UserService {
         }
         // 唯一性已由数据库保证：uk_username 改为 (username, active_flag)，
         // 存活行 active_flag=1、已删行 active_flag=NULL，原账号在删除瞬间自动释放，
-        // 应用层无需再改写业务值（见 开发文档/数据库/逻辑删除唯一索引企业级改造方案.md）
+        // 应用层无需再改写业务值（生成列由建表脚本统一维护，见 oa-system/数据库/）
         userMapper.deleteById(id);
         userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, id));
         log.info("删除用户: id={}, username={}", id, user.getUsername());
