@@ -317,6 +317,16 @@ public class UserServiceImpl implements UserService {
         return user.getId();
     }
 
+    /**
+     * 给招聘转员工生成的新账号绑定默认「普通员工」角色。
+     *
+     * <p>招聘转员工走 {@code RecruitServiceImpl#createEmployee}，那里不便重复整套角色绑定逻辑，
+     * 故在此暴露一个最小入口，复用 {@link #requireDefaultRoleId()} + {@link #bindRoles}。</p>
+     */
+    public void assignDefaultEmployeeRole(Long userId) {
+        bindRoles(userId, List.of(requireDefaultRoleId()));
+    }
+
     private Long updateUser(UserSaveRequest request) {
         if (request.getId() == null) {
             throw new BizException(ErrorCode.BAD_REQUEST, "用户ID不能为空");
@@ -392,7 +402,7 @@ public class UserServiceImpl implements UserService {
      * @return 该部门所属的公司 ID
      * @throws BizException 部门不存在、未关联公司，或已停用且本次确实变更了部门
      */
-    private Long resolveCompanyId(Long deptId, Long currentDeptId) {
+    public Long resolveCompanyId(Long deptId, Long currentDeptId) {
         Department dept = departmentMapper.selectById(deptId);
         if (dept == null) {
             throw new BizException(ErrorCode.DEPT_NOT_FOUND);

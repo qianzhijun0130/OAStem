@@ -1,0 +1,9 @@
+package com.kellen.oa_system.hr.training.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.kellen.oa_system.hr.training.entity.TrainEnroll;
+import org.apache.ibatis.annotations.Mapper;
+
+@Mapper
+public interface TrainEnrollMapper extends BaseMapper<TrainEnroll> {
+}

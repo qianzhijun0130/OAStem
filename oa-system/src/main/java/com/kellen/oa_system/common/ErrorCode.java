@@ -166,6 +166,32 @@ public enum ErrorCode {
     PERF_TARGET_REQUIRED(6517, "请先填写目标值再提交"),
     PERF_GRADE_MISSING(6518, "方案未配置等级映射，无法定级"),
 
+    // ---------- 招聘 66xx ----------
+    RECRUIT_CANDIDATE_DUPLICATE(6601, "该手机号已有候选人记录"),
+    RECRUIT_STAGE_INVALID(6602, "招聘阶段不允许该操作"),
+    OFFER_EXPIRED(6603, "Offer 已过期，无法操作"),
+    CANDIDATE_NOT_AUTHORIZED(6604, "未获得候选人授权，不可保存简历"),
+    DEMAND_DEPT_INVALID(6605, "需求部门不存在或已停用"),
+    DEMAND_POSITION_INVALID(6606, "需求岗位不存在或已停用"),
+    INTERVIEW_FEEDBACK_INCOMPLETE(6607, "还有面试官未提交评价，不能汇总"),
+    INTERVIEW_CONTINUE_REASON_REQUIRED(6608, "存在「不通过」评价，继续推进必须填写理由"),
+    OFFER_STATUS_INVALID(6609, "Offer 状态不允许该操作"),
+    CONVERT_TARGET_REQUIRED(6610, "该手机号已有员工档案，请选择复用或新建"),
+    DEMAND_APPROVED_READONLY(6611, "需求已通过审批，不能直接修改"),
+    CANDIDATE_STAGE_FINAL(6612, "候选人已入职，阶段不可再变更"),
+
+    // ---------- 培训 67xx ----------
+    TRAIN_SESSION_FULL(6701, "名额已满，已进入候补"),
+    TRAIN_ENROLL_CLOSED(6702, "报名已截止或期次未开始"),
+    TRAIN_ALREADY_ENROLLED(6703, "你已报名该期次"),
+    TRAIN_ABSENCE_RESTRICTED(6704, "累计爽约 3 次，1 个月内不能报名"),
+    TRAIN_SESSION_STARTED(6705, "开课已开始或已结束，不能取消报名"),
+    TRAIN_CANCEL_TOO_LATE(6706, "距开课不足 24 小时，取消将计为爽约"),
+    TRAIN_SCORE_INVALID(6707, "成绩须在 0~100 之间"),
+    TRAIN_COURSE_INVALID(6708, "课程不存在或已停用"),
+    TRAIN_SESSION_INVALID(6709, "培训期次不存在"),
+    TRAIN_NOT_CHECKED_IN(6710, "未签到不能录入成绩"),
+
     // ---------- 系统错误 5xxx ----------
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
 
