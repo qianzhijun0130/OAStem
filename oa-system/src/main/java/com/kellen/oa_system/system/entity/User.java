@@ -1,7 +1,9 @@
 package com.kellen.oa_system.system.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.kellen.oa_system.common.entity.AuditEntity;
+import com.kellen.oa_system.security.crypto.EncryptedStringTypeHandler;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -16,7 +18,7 @@ import java.time.LocalDateTime;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@TableName("oa_user")
+@TableName(value = "oa_user", autoResultMap = true)
 public class User extends AuditEntity {
 
     private String username;
@@ -72,7 +74,13 @@ public class User extends AuditEntity {
     /** 试用期截止日，用于转正提醒 */
     private LocalDate probationEndDate;
 
-    /** 身份证号（脱敏展示，加密存储） */
+    /**
+     * 身份证号（库中 AES-GCM 密文，对外脱敏展示）。
+     *
+     * <p>typeHandler 做字段级透明加解密；{@code autoResultMap = true} 是前提，
+     * 少了它查询结果的解密不生效，会把 {@code ENC:} 密文直接返回给前端。</p>
+     */
+    @TableField(typeHandler = EncryptedStringTypeHandler.class)
     private String idCard;
 
     private LocalDate birthDate;

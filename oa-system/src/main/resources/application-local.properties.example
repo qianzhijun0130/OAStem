@@ -10,3 +10,10 @@ spring.datasource.password=你的MySQL密码
 jwt.secret=请填写随机密钥
 # JWT 有效期（毫秒），默认 8 小时
 jwt.expiration=28800000
+
+# 敏感字段加密密钥（AES-256-GCM）。生成方式：
+#   openssl rand -base64 32
+# 或用 python：python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"
+# 该密钥丢失 = 历史身份证/银行卡密文永久不可解，必须与数据库备份一同保管；
+# 更换密钥需配套「解密—再加密」迁移，不能直接替换。
+security.crypto.key=请填写随机密钥（至少 32 字符）
