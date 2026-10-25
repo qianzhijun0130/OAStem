@@ -104,14 +104,16 @@ export function deleteCertApi(id: number, certId: number) {
   return request<null>({ url: `/hr/employee/${id}/cert/${certId}`, method: 'delete' })
 }
 
-/** 花名册导出：返回 Blob，由页面触发下载 */
+/**
+ * 花名册导出。
+ *
+ * <p>下载动作（含「后端返回 JSON 报错时提示而不是存成假 xlsx」）统一收敛在
+ * {@link downloadFile} 里。不要在这里返回 Blob 让页面自己 createObjectURL：
+ * 响应拦截器对 `responseType: 'blob'` 返回的是完整 {@code AxiosResponse}，
+ * 页面若 `as Blob` 强转会在运行期拿到对象而非 Blob，点导出毫无反应。</p>
+ */
 export function exportEmployeeApi(params: EmployeePageQuery) {
-  return request<Blob>({
-    url: '/hr/employee/export',
-    method: 'get',
-    params,
-    responseType: 'blob',
-  })
+  return downloadFile('/hr/employee/export', { ...params }, '员工花名册.xlsx')
 }
 
 /* ==================== 考勤 ==================== */
@@ -271,13 +273,15 @@ export function getHrRequestPageApi(params: {
 
 /* ==================== 考勤月度汇总导出 ==================== */
 
+/**
+ * 考勤月度汇总导出。
+ *
+ * <p>与 {@link exportEmployeeApi} 同理，下载逻辑收敛在 {@link downloadFile}；
+ * 后端会带 {@code Content-Disposition}（考勤月度汇总-{month}.xlsx），
+ * 兜底文件名仅在响应缺少该头时使用。</p>
+ */
 export function exportAttendanceMonthApi(params: { month: string; deptId?: number }) {
-  return request<Blob>({
-    url: '/hr/attendance/month/export',
-    method: 'get',
-    params,
-    responseType: 'blob',
-  })
+  return downloadFile('/hr/attendance/month/export', { ...params }, `考勤月度汇总-${params.month}.xlsx`)
 }
 
 /* ==================== 薪酬 ==================== */

@@ -71,13 +71,9 @@ async function exportMonth() {
   const month = monthQuery.query.month || currentMonth()
   monthExporting.value = true
   try {
-    const blob = await exportAttendanceMonthApi({ month, deptId: monthQuery.query.deptId })
-    const url = URL.createObjectURL(blob as Blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `考勤月度汇总-${month}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
+    // 下载动作与文件名解析收敛在 exportAttendanceMonthApi → downloadFile，
+    // 页面不再接触 Blob（此前 `blob as Blob` 强转拿到的是 AxiosResponse，点了没反应）
+    await exportAttendanceMonthApi({ month, deptId: monthQuery.query.deptId })
     ElMessage.success('导出完成')
   } catch (error) {
     logAsyncError('exportAttendanceMonth', error)

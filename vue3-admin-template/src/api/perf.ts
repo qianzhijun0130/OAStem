@@ -1,4 +1,5 @@
 import { request } from '@/utils/request'
+import { downloadFile } from '@/utils/download'
 import type {
   PageResult,
   PerfAppealHandleRequest,
@@ -165,11 +166,14 @@ export function getPerfDistributionApi(cycleId: number) {
   return request<PerfDistributionVO[]>({ url: '/hr/perf/distribution', method: 'get', params: { cycleId } })
 }
 
+/**
+ * 绩效结果导出。
+ *
+ * <p>下载动作（含「后端返回 JSON 报错时提示而不是存成假 xlsx」）统一收敛在
+ * {@link downloadFile}。不要返回 Blob 让页面 createObjectURL：
+ * 响应拦截器对 `responseType: 'blob'` 返回完整 {@code AxiosResponse}，
+ * 页面 `as Blob` 强转会在运行期拿到对象而非 Blob，点了没反应。</p>
+ */
 export function exportPerfResultApi(cycleId: number) {
-  return request<Blob>({
-    url: '/hr/perf/export',
-    method: 'get',
-    params: { cycleId },
-    responseType: 'blob',
-  })
+  return downloadFile('/hr/perf/export', { cycleId }, '绩效结果.xlsx')
 }

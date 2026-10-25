@@ -669,13 +669,9 @@ async function exportResult() {
   if (!cycleId.value) return
   exporting.value = true
   try {
-    const blob = await exportPerfResultApi(cycleId.value)
-    const url = URL.createObjectURL(blob as Blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = '绩效结果.xlsx'
-    a.click()
-    URL.revokeObjectURL(url)
+    // 下载动作与文件名解析收敛在 exportPerfResultApi → downloadFile，
+    // 页面不再接触 Blob（此前 `blob as Blob` 强转拿到的是 AxiosResponse，点了没反应）
+    await exportPerfResultApi(cycleId.value)
     ElMessage.success('导出完成')
   } catch (error) {
     logAsyncError('exportPerfResult', error)

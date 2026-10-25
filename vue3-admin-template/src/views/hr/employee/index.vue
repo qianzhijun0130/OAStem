@@ -154,13 +154,9 @@ const exporting = ref(false)
 async function exportRoster() {
   exporting.value = true
   try {
-    const blob = await exportEmployeeApi({ ...query })
-    const url = URL.createObjectURL(blob as Blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = '员工花名册.xlsx'
-    a.click()
-    URL.revokeObjectURL(url)
+    // 建链、命名、revoke 与「后端返 JSON 报错时提示」都已收敛在 exportEmployeeApi → downloadFile，
+    // 页面不再接触 Blob（此前 `blob as Blob` 强转拿到的是 AxiosResponse，点了没反应）
+    await exportEmployeeApi({ ...query })
   } catch (error) {
     logAsyncError('exportEmployee', error)
   } finally {
