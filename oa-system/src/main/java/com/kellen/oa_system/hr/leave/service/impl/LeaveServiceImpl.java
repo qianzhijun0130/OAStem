@@ -6,6 +6,7 @@ import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
+import com.kellen.oa_system.common.util.ExcelExportUtil;
 import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
 import com.kellen.oa_system.hr.common.support.HrRoles;
@@ -81,6 +82,11 @@ public class LeaveServiceImpl implements LeaveService {
 
     private static final Map<Integer, String> STATUS_LABEL = Map.of(
             0, "草稿", 1, "审批中", 2, "已通过", 3, "已驳回", 4, "已撤销");
+
+    /** 请假导出列（与列表字段对齐；不含附件与审批实例等技术字段） */
+    private static final List<String> EXPORT_HEADERS = List.of(
+            "单号", "姓名", "工号", "部门", "假别", "开始时间", "结束时间",
+            "请假天数", "实际天数", "状态", "返岗日期", "事由");
 
     private final LeaveMapper leaveMapper;
     private final LeavePolicyMapper policyMapper;
@@ -244,6 +250,21 @@ public class LeaveServiceImpl implements LeaveService {
         int pageNo = query.getPageNo() == null || query.getPageNo() < 1 ? 1 : query.getPageNo();
         int pageSize = query.getPageSize() == null || query.getPageSize() < 1 ? 10 : query.getPageSize();
 
+        LambdaQueryWrapper<Leave> wrapper = buildQueryWrapper(query);
+        if (wrapper == null) {
+            return PageResult.empty((long) pageNo, (long) pageSize);
+        }
+        Page<Leave> page = leaveMapper.selectPage(new Page<>(pageNo, pageSize), wrapper);
+        return PageResult.of(toVOs(page.getRecords()), page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    /**
+     * 组装列表与导出共用的查询条件。
+     *
+     * @return {@code null} 表示「过滤结果必然为空」（如数据范围为空、部门下无员工），
+     *         让调用方直接短路，避免为一次空结果还去查库
+     */
+    private LambdaQueryWrapper<Leave> buildQueryWrapper(LeavePageQuery query) {
         LambdaQueryWrapper<Leave> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(query.getMonth())) {
             YearMonth ym = parseMonth(query.getMonth());
@@ -262,7 +283,7 @@ public class LeaveServiceImpl implements LeaveService {
         List<Long> visible = visibleUserIds();
         if (visible != null) {
             if (visible.isEmpty()) {
-                return PageResult.empty((long) pageNo, (long) pageSize);
+                return null;
             }
             wrapper.in(Leave::getUserId, visible);
         }
@@ -272,7 +293,7 @@ public class LeaveServiceImpl implements LeaveService {
                             .in(User::getDeptId, hrDataScopeSupport.subtreeIds(query.getDeptId())))
                     .stream().map(User::getId).toList();
             if (ids.isEmpty()) {
-                return PageResult.empty((long) pageNo, (long) pageSize);
+                return null;
             }
             wrapper.in(Leave::getUserId, ids);
         }
@@ -283,14 +304,42 @@ public class LeaveServiceImpl implements LeaveService {
                             .and(w -> w.like(User::getRealName, kw).or().like(User::getWorkNumber, kw)))
                     .stream().map(User::getId).toList();
             if (ids.isEmpty()) {
-                return PageResult.empty((long) pageNo, (long) pageSize);
+                return null;
             }
             wrapper.in(Leave::getUserId, ids);
         }
         wrapper.orderByDesc(Leave::getStartTime).orderByDesc(Leave::getId);
+        return wrapper;
+    }
 
-        Page<Leave> page = leaveMapper.selectPage(new Page<>(pageNo, pageSize), wrapper);
-        return PageResult.of(toVOs(page.getRecords()), page.getTotal(), page.getCurrent(), page.getSize());
+    @Override
+    public void export(LeavePageQuery query, jakarta.servlet.http.HttpServletResponse response) {
+        LambdaQueryWrapper<Leave> wrapper = buildQueryWrapper(query);
+        List<LeaveVO> rows;
+        if (wrapper == null) {
+            rows = List.of();
+        } else {
+            // 导出上限，避免一次性把整年数据读进内存；按筛选条件缩小范围更稳妥
+            wrapper.last("LIMIT 5000");
+            rows = toVOs(leaveMapper.selectList(wrapper));
+        }
+        List<List<Object>> data = new ArrayList<>(rows.size());
+        for (LeaveVO vo : rows) {
+            data.add(List.of(
+                    nvl(vo.getBillCode()),
+                    nvl(vo.getRealName()),
+                    nvl(vo.getWorkNumber()),
+                    nvl(vo.getDeptName()),
+                    nvl(vo.getLeaveTypeLabel()),
+                    vo.getStartTime() == null ? "" : vo.getStartTime().toString().replace('T', ' '),
+                    vo.getEndTime() == null ? "" : vo.getEndTime().toString().replace('T', ' '),
+                    vo.getLeaveDays() == null ? "" : vo.getLeaveDays().toPlainString(),
+                    vo.getActualDays() == null ? "" : vo.getActualDays().toPlainString(),
+                    nvl(vo.getLeaveStatusLabel()),
+                    vo.getReturnDate() == null ? "" : vo.getReturnDate().toString(),
+                    nvl(vo.getReason())));
+        }
+        ExcelExportUtil.write(response, "请假记录.xlsx", "请假记录", EXPORT_HEADERS, data);
     }
 
     @Override
@@ -450,5 +499,11 @@ public class LeaveServiceImpl implements LeaveService {
         } catch (DateTimeParseException e) {
             throw new BizException(ErrorCode.BAD_REQUEST, "月份格式应为 yyyy-MM");
         }
+    }
+
+    /** 导出用：null 转空串，避免 Excel 单元格出现 "null" */
+
+    private static String nvl(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 }

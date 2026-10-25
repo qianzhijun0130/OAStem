@@ -134,6 +134,8 @@ public enum ErrorCode {
     HR_OVERTIME_EXCEED_LIMIT(6308, "单月加班不得超过 36 小时"),
     HR_TRIP_LEAVE_CONFLICT(6309, "出差时间与已有请假时间冲突"),
     HR_CARD_ALREADY_EXISTS(6310, "该日期该方向已有补卡记录"),
+    HR_LEAVE_POLICY_DUPLICATE(6311, "该城市该年度该假别的政策已存在"),
+    HR_LEAVE_POLICY_TYPE_INVALID(6312, "该假别不适用地方政策配置（仅婚假/产假/陪产假/丧假）"),
 
     // ---------- 业务错误：薪资 64xx ----------
     HR_SALARY_PROFILE_MISSING(6401, "存在没有生效薪资档案的员工，请先维护薪资档案"),

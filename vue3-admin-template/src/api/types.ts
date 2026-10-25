@@ -1468,6 +1468,28 @@ export interface LeaveSubmitRequest {
   attachmentIds?: string
 }
 
+/** 假别政策：某城市某假别的法定天数（按年生效） */
+export interface LeavePolicyVO {
+  id?: number
+  city: string
+  leaveType: number
+  leaveTypeLabel?: string
+  days: number
+  effectiveYear: number
+  remark?: string
+  updateTime?: string
+}
+
+/** 假别政策保存请求：id 为空视为新增，有值视为修改 */
+export interface LeavePolicySaveRequest {
+  id?: number
+  city: string
+  leaveType: number
+  days: number
+  effectiveYear: number
+  remark?: string
+}
+
 export interface HrRequestVO {
   id: number
   billCode?: string

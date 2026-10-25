@@ -1,3 +1,4 @@
+import { downloadFile } from '@/utils/download'
 import { request } from '@/utils/request'
 import type {
   AttendanceMonthVO,
@@ -22,6 +23,8 @@ import type {
   HrRequestSaveRequest,
   HrRequestVO,
   LeavePageQuery,
+  LeavePolicySaveRequest,
+  LeavePolicyVO,
   LeaveQuotaVO,
   LeaveSubmitRequest,
   LeaveVO,
@@ -211,6 +214,37 @@ export function getLeavePageApi(params: LeavePageQuery) {
 
 export function getMyLeaveApi(leaveStatus?: number) {
   return request<LeaveVO[]>({ url: '/hr/leave/my', method: 'get', params: { leaveStatus } })
+}
+
+/* ==================== 假勤：假别政策与请假单导出 ==================== */
+
+export function getLeavePolicyListApi(params: { year?: number; city?: string }) {
+  return request<LeavePolicyVO[]>({ url: '/hr/leave/policy', method: 'get', params })
+}
+
+/** 假别下拉项：后端只返回可配置政策的假别（4 婚假 / 5 产假 / 6 陪产假 / 7 丧假） */
+export function getLeavePolicyTypesApi() {
+  return request<{ code: number; label: string }[]>({ url: '/hr/leave/policy/types', method: 'get' })
+}
+
+export function saveLeavePolicyApi(data: LeavePolicySaveRequest) {
+  return request<number>({ url: '/hr/leave/policy', method: 'post', data })
+}
+
+export function deleteLeavePolicyApi(id: number) {
+  return request<null>({ url: `/hr/leave/policy/${id}`, method: 'delete' })
+}
+
+/** 请假单导出：后端直接返回 xlsx 流（非 Result 包装），下载与文件名解析复用 downloadFile */
+export function exportLeaveApi(params: {
+  month?: string
+  leaveType?: number
+  leaveStatus?: number
+  deptId?: number
+  userId?: number
+  keyword?: string
+}) {
+  return downloadFile('/hr/leave/export', { ...params }, '请假单.xlsx')
 }
 
 /* ==================== 假勤：加班 / 出差 / 补卡 ==================== */

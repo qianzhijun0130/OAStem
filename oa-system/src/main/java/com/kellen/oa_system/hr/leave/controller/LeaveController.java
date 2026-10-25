@@ -12,6 +12,7 @@ import com.kellen.oa_system.hr.leave.vo.LeaveQuotaVO;
 import com.kellen.oa_system.hr.leave.vo.LeaveVO;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -85,6 +86,19 @@ public class LeaveController {
     @PreAuthorize("isAuthenticated()")
     public Result<List<LeaveVO>> mine(@RequestParam(required = false) Integer leaveStatus) {
         return Result.success(leaveService.mine(leaveStatus));
+    }
+
+    /**
+     * 导出请假记录。直接写响应流，因此不返回 {@code Result}。
+     *
+     * <p>与列表共用筛选条件（月份/假别/状态/部门/关键字/员工）与同一套数据范围，
+     * 避免「列表看得到、导出却没有」这类权限穿透。</p>
+     */
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('hr:leave:export')")
+    @OperationLog(module = "假勤管理", operation = "导出请假记录")
+    public void export(@Valid LeavePageQuery query, HttpServletResponse response) {
+        leaveService.export(query, response);
     }
 
     @GetMapping("/{id}")

@@ -40,4 +40,12 @@ public interface LeaveService {
      * @param returnDate 实际返岗日期（须晚于请假开始日、不晚于请假结束日）
      */
     void returnFromLeave(Long leaveId, java.time.LocalDate returnDate, String remark);
+
+    /**
+     * 导出请假记录（与列表同一套筛选条件）。
+     *
+     * <p>直接写响应流，因此不返回 {@code Result}；导出带上限 5000 行，
+     * 需要全量时按月份或部门分批。</p>
+     */
+    void export(LeavePageQuery query, jakarta.servlet.http.HttpServletResponse response);
 }

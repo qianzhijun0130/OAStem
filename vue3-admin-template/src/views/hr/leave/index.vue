@@ -5,17 +5,26 @@ import {
   adjustLeaveQuotaApi,
   cancelHrRequestApi,
   cancelLeaveApi,
-  returnLeaveApi,
+  deleteLeavePolicyApi,
+  exportLeaveApi,
   getHrRequestPageApi,
   getLeavePageApi,
+  getLeavePolicyListApi,
+  getLeavePolicyTypesApi,
   getMyLeaveQuotaApi,
+  returnLeaveApi,
+  saveLeavePolicyApi,
   submitHrRequestApi,
   submitLeaveApi,
 } from '@/api/hr'
+import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
+import ListPage from '@/components/list/ListPage.vue'
 import type {
   HrRequestSaveRequest,
   HrRequestVO,
+  LeavePolicySaveRequest,
+  LeavePolicyVO,
   LeaveQuotaVO,
   LeaveSubmitRequest,
   LeaveVO,
@@ -129,6 +138,25 @@ async function loadLeaves() {
   }
 }
 
+/** 请假单导出：后端直接返回 xlsx 流，按当前查询条件下载 */
+const exporting = ref(false)
+
+async function exportLeaves() {
+  exporting.value = true
+  try {
+    await exportLeaveApi({
+      month: leaveQuery.month || undefined,
+      leaveStatus: leaveQuery.leaveStatus,
+      keyword: leaveQuery.keyword || undefined,
+    })
+    ElMessage.success('导出完成')
+  } catch (error) {
+    logAsyncError('exportLeave', error)
+  } finally {
+    exporting.value = false
+  }
+}
+
 const leaveDialogVisible = ref(false)
 const leaveSubmitting = ref(false)
 const leaveFormRef = ref<FormInstance>()
@@ -233,6 +261,132 @@ async function returnFromLeave(row: LeaveVO) {
     await Promise.all([loadLeaves(), loadQuota()])
   } catch (error) {
     logAsyncError('returnFromLeave', error)
+  }
+}
+
+/* ---------------- 假别政策 ---------------- */
+
+interface LeavePolicyQuery {
+  year: string
+  city: string
+}
+
+const {
+  list: policyList,
+  loading: policyLoading,
+  query: policyQuery,
+  search: searchPolicy,
+  refresh: refreshPolicy,
+  load: loadPolicy,
+} = useListQuery<LeavePolicyVO, LeavePolicyQuery>({
+  // 必须返回新对象：reset() 会拿它做干净副本
+  initialQuery: () => ({ year: String(new Date().getFullYear()), city: '' }),
+  // 后端按「年度 + 城市」返回全量数组（不分页），这里适配成统一分页结构
+  fetcher: async (params) => {
+    const records = await getLeavePolicyListApi({
+      year: params.year ? Number(params.year) : undefined,
+      city: params.city || undefined,
+    })
+    return { records: records || [], total: records?.length || 0 }
+  },
+  // 切到该页签时才取数，与其它页签一致
+  immediate: false,
+})
+
+const policyTypes = ref<{ code: number; label: string }[]>([])
+
+async function loadPolicyTypes() {
+  if (policyTypes.value.length > 0) {
+    return
+  }
+  try {
+    policyTypes.value = (await getLeavePolicyTypesApi()) || []
+  } catch (error) {
+    logAsyncError('loadLeavePolicyTypes', error)
+  }
+}
+
+const policyDialogVisible = ref(false)
+const policySubmitting = ref(false)
+const policyFormRef = ref<FormInstance>()
+const policyEditingId = ref<number | null>(null)
+const policyForm = reactive<LeavePolicySaveRequest>({
+  city: '',
+  leaveType: 4,
+  days: 3,
+  effectiveYear: new Date().getFullYear(),
+  remark: '',
+})
+
+const policyRules: FormRules = {
+  city: [{ required: true, message: '请输入城市', trigger: 'blur' }],
+  leaveType: [{ required: true, message: '请选择假别', trigger: 'change' }],
+  effectiveYear: [{ required: true, message: '请输入生效年度', trigger: 'change' }],
+}
+
+function openPolicyCreate() {
+  policyEditingId.value = null
+  Object.assign(policyForm, {
+    city: policyQuery.city || '',
+    leaveType: policyTypes.value[0]?.code ?? 4,
+    days: 3,
+    effectiveYear: policyQuery.year ? Number(policyQuery.year) : new Date().getFullYear(),
+    remark: '',
+  })
+  void loadPolicyTypes()
+  policyDialogVisible.value = true
+}
+
+function openPolicyEdit(row: LeavePolicyVO) {
+  policyEditingId.value = row.id ?? null
+  Object.assign(policyForm, {
+    city: row.city,
+    leaveType: row.leaveType,
+    days: row.days,
+    effectiveYear: row.effectiveYear,
+    remark: row.remark || '',
+  })
+  void loadPolicyTypes()
+  policyDialogVisible.value = true
+}
+
+async function submitPolicy() {
+  const valid = await policyFormRef.value?.validate().catch(() => false)
+  if (!valid) {
+    return
+  }
+  policySubmitting.value = true
+  try {
+    await saveLeavePolicyApi({ ...policyForm, id: policyEditingId.value ?? undefined })
+    ElMessage.success(policyEditingId.value ? '已保存' : '已新增')
+    policyDialogVisible.value = false
+    await refreshPolicy()
+  } catch (error) {
+    logAsyncError('saveLeavePolicy', error)
+  } finally {
+    policySubmitting.value = false
+  }
+}
+
+async function removePolicy(row: LeavePolicyVO) {
+  try {
+    await ElMessageBox.confirm(`确定删除「${row.city} · ${row.leaveTypeLabel || leaveTypeLabel(row.leaveType)}」的政策吗？`, '删除政策', {
+      type: 'warning',
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  if (row.id == null) {
+    return
+  }
+  try {
+    await deleteLeavePolicyApi(row.id)
+    ElMessage.success('已删除')
+    await refreshPolicy()
+  } catch (error) {
+    logAsyncError('deleteLeavePolicy', error)
   }
 }
 
@@ -354,6 +508,9 @@ function onTabChange(name: string) {
     void loadQuota()
   } else if (name === 'leave') {
     void loadLeaves()
+  } else if (name === 'policy') {
+    void loadPolicy()
+    void loadPolicyTypes()
   } else {
     const tab = BIZ_TABS.find((t) => t.name === name)
     if (tab) {
@@ -403,6 +560,7 @@ onMounted(() => {
             </el-select>
             <el-input v-model="leaveQuery.keyword" placeholder="姓名 / 工号" clearable style="width: 160px" />
             <el-button type="primary" @click="leavePage.pageNo = 1; loadLeaves()">查询</el-button>
+            <el-button v-permission="'hr:leave:export'" :loading="exporting" @click="exportLeaves">导出</el-button>
             <el-button v-permission="'hr:leave:create'" type="primary" plain @click="openLeaveCreate">发起请假</el-button>
           </div>
           <el-table v-loading="leaveLoading" :data="leaves" border>
@@ -537,6 +695,76 @@ onMounted(() => {
             @current-change="(p: number) => { bizState[tab.type].query.pageNo = p; loadBiz(tab.type) }"
           />
         </el-tab-pane>
+
+        <!-- ============ 假别政策 ============ -->
+        <el-tab-pane label="假别政策" name="policy">
+          <ListPage
+            :data="policyList"
+            :loading="policyLoading"
+            :card="false"
+            :show-pagination="false"
+            empty-text="暂无假别政策"
+          >
+            <template #filters>
+              <div class="hr-leave__bar">
+                <el-date-picker
+                  v-model="policyQuery.year"
+                  type="year"
+                  value-format="YYYY"
+                  :clearable="false"
+                  placeholder="年度"
+                  style="width: 120px"
+                />
+                <el-input
+                  v-model="policyQuery.city"
+                  placeholder="城市"
+                  clearable
+                  style="width: 160px"
+                  @keyup.enter="searchPolicy"
+                />
+                <el-button type="primary" @click="searchPolicy">查询</el-button>
+              </div>
+            </template>
+            <template #toolbar>
+              <el-button v-permission="'hr:leave:policy'" type="primary" @click="openPolicyCreate">新增政策</el-button>
+            </template>
+
+            <el-table-column prop="city" label="城市" width="120" />
+            <el-table-column label="假别" width="120">
+              <template #default="{ row }">{{ row.leaveTypeLabel || leaveTypeLabel(row.leaveType) }}</template>
+            </el-table-column>
+            <el-table-column prop="days" label="法定天数" width="100" />
+            <el-table-column prop="effectiveYear" label="生效年度" width="100" />
+            <el-table-column label="依据" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.remark || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="updateTime" label="更新时间" width="170" />
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  v-permission="'hr:leave:policy'"
+                  icon-only
+                  link
+                  type="primary"
+                  title="编辑"
+                  @click="openPolicyEdit(row)"
+                >
+                  编辑
+                </el-button>
+                <el-button
+                  v-permission="'hr:leave:policy'"
+                  icon-only
+                  link
+                  type="danger"
+                  title="删除"
+                  @click="removePolicy(row)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </ListPage>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -668,6 +896,46 @@ onMounted(() => {
         <el-button type="primary" :loading="bizSubmitting" @click="submitBiz">提交</el-button>
       </template>
     </el-dialog>
+
+    <!-- 新增 / 编辑假别政策 -->
+    <ResponsiveDialog
+      v-model="policyDialogVisible"
+      :title="policyEditingId ? '编辑假别政策' : '新增假别政策'"
+      width="520px"
+      destroy-on-close
+    >
+      <el-form ref="policyFormRef" :model="policyForm" :rules="policyRules" label-width="92px">
+        <el-form-item label="城市" prop="city">
+          <el-input v-model="policyForm.city" maxlength="50" placeholder="如 上海" />
+        </el-form-item>
+        <el-form-item label="假别" prop="leaveType">
+          <el-select v-model="policyForm.leaveType" style="width: 100%">
+            <el-option v-for="t in policyTypes" :key="t.code" :label="t.label" :value="t.code" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="法定天数" prop="days">
+          <el-input-number v-model="policyForm.days" :min="0.5" :step="0.5" :precision="1" />
+          <span class="hr-leave__hint">天</span>
+        </el-form-item>
+        <el-form-item label="生效年度" prop="effectiveYear">
+          <el-input-number v-model="policyForm.effectiveYear" :min="2000" :max="2100" :controls="false" style="width: 140px" />
+        </el-form-item>
+        <el-form-item label="依据">
+          <el-input
+            v-model="policyForm.remark"
+            type="textarea"
+            :rows="3"
+            maxlength="500"
+            show-word-limit
+            placeholder="选填，如《女职工劳动保护特别规定》"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="policyDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="policySubmitting" @click="submitPolicy">确定</el-button>
+      </template>
+    </ResponsiveDialog>
   </div>
 </template>
 
