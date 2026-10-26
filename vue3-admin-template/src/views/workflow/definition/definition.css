@@ -1,0 +1,162 @@
+/* 流程模板页样式：从 index.vue 抽出（FE-OPT-05），减少单文件体积 */
+.designer__icon-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.designer__icon-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.designer__icon-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-color-primary);
+}
+
+.flow-def__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.import__tip {
+  margin-bottom: 12px;
+}
+
+.import__file {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.flow-def__pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.designer {
+  display: flex;
+  gap: 16px;
+  height: 62vh;
+}
+
+.designer__left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.designer__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.designer__tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.designer__right {
+  width: 650px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 标签页：内容区留出下方内边距，避免与滚动条贴边 */
+.designer__tabs :deep(.el-tabs__content) {
+  padding: 12px 2px 4px;
+}
+
+.designer__tabs :deep(.el-tabs__header) {
+  margin-bottom: 0;
+}
+
+.designer__alert {
+  margin-bottom: 10px;
+}
+
+.designer__muted {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+/* 独立成块的说明文字（表单项下方需留白） */
+.designer__muted--block {
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+/* 字段权限工具条：节点选择 + 表单提示 + 保存按钮 */
+.designer__field-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.designer__warn {
+  font-size: 12px;
+  color: var(--el-color-warning);
+}
+
+/* 流程属性：bpmn-js 属性面板挂载容器（面板自带内部滚动） */
+.designer__panel-host {
+  height: calc(62vh - 150px);
+  min-height: 380px;
+  overflow: auto;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 4px;
+}
+
+/* 分支条件：网关选择工具条 */
+.designer__cond-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* 分支条件：网关出线表（dialog 内有多张表格，靠 class 限定作用域） */
+.designer__cond-table {
+  width: 100%;
+}
+
+/* 分支条件：单条条件编辑行（窄面板下允许换行） */
+.designer__cond-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* 分支条件：且/或选择行 */
+.designer__cond-logic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* 分支条件：编辑区操作按钮行 */
+.designer__cond-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.designer__cond-name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin-bottom: 2px;
+}
