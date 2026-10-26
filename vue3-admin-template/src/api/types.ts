@@ -1633,6 +1633,10 @@ export interface SalaryRecordVO {
   deptName?: string
   month: string
   grossPay: number
+  /** 在职天数折算系数（1 或空表示未折算） */
+  prorationFactor?: number
+  /** 折算后标准工资 */
+  proratedStandard?: number
   attendanceDeduct: number
   socialPersonal: number
   fundPersonal: number

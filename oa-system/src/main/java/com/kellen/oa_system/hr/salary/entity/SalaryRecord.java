@@ -37,6 +37,17 @@ public class SalaryRecord extends AuditEntity {
     /** 固定津贴 */
     private BigDecimal allowance;
 
+    /**
+     * 在职天数折算系数（1=不折算）。
+     *
+     * <p>入职/离职当月按「实际在职应出勤 ÷ 当月应出勤」折算标准工资，系数 &lt; 1；
+     * 其余情况固定 1。落库是为了让工资条能直接展示折算依据，而不是只写一段备注让人猜。</p>
+     */
+    private BigDecimal prorationFactor;
+
+    /** 折算后标准工资（= 标准工资 × 折算系数） */
+    private BigDecimal proratedStandard;
+
     /** 加班费 */
     private BigDecimal overtimePay;
 

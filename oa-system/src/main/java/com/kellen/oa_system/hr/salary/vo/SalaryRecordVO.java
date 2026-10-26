@@ -35,6 +35,12 @@ public class SalaryRecordVO {
     /** 应发 */
     private BigDecimal grossPay;
 
+    /** 在职天数折算系数（1=不折算） */
+    private BigDecimal prorationFactor;
+
+    /** 折算后标准工资 */
+    private BigDecimal proratedStandard;
+
     /** 考勤扣款 */
     private BigDecimal attendanceDeduct;
 

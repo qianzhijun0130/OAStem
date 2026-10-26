@@ -517,6 +517,8 @@ public class SalaryServiceImpl implements SalaryService {
         record.setUserId(user.getId());
         record.setDeptId(user.getDeptId());
         record.setMonth(month);
+        record.setProrationFactor(prorationFactor);
+        record.setProratedStandard(proratedStandard);
         record.setBaseSalary(base);
         record.setPostSalary(post);
         record.setPerfSalary(perf);
@@ -1150,6 +1152,8 @@ public class SalaryServiceImpl implements SalaryService {
             vo.setDeptName(deptNames.get(r.getDeptId()));
             vo.setMonth(r.getMonth());
             vo.setGrossPay(r.getGrossPay());
+            vo.setProrationFactor(r.getProrationFactor());
+            vo.setProratedStandard(r.getProratedStandard());
             vo.setAttendanceDeduct(r.getAttendanceDeduct());
             vo.setSocialPersonal(r.getSocialPersonal());
             vo.setFundPersonal(r.getFundPersonal());

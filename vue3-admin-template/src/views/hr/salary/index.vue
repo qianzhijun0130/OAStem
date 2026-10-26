@@ -448,6 +448,9 @@ async function loadDeptOptions() {
 
 const money = (value?: number) => (value == null ? '-' : `¥${Number(value).toFixed(2)}`)
 
+/** 折算系数：1 或空表示当月未折算，显示为「—」避免整列都是 1.0000 干扰阅读 */
+const prorationText = (value?: number) => (value == null || Number(value) >= 1 ? '—' : Number(value).toFixed(4))
+
 const statusMeta = (status: number) => {
   if (status === 4) {
     return { label: '已发放', type: 'success' as const }
@@ -509,6 +512,21 @@ onMounted(async () => {
             <el-table-column prop="workNumber" label="工号" width="105" />
             <el-table-column prop="realName" label="姓名" width="95" />
             <el-table-column prop="deptName" label="部门" min-width="120" show-overflow-tooltip />
+            <el-table-column label="折算系数" width="110" align="center">
+              <template #default="{ row }">
+                <el-tooltip
+                  v-if="row.prorationFactor != null && row.prorationFactor < 1"
+                  content="入职或离职当月按实际在职应出勤天数折算"
+                  placement="top"
+                >
+                  <span class="salary__proration">{{ prorationText(row.prorationFactor) }}</span>
+                </el-tooltip>
+                <span v-else class="salary__muted">{{ prorationText(row.prorationFactor) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="折算后标准工资" width="140" align="right">
+              <template #default="{ row }">{{ money(row.proratedStandard) }}</template>
+            </el-table-column>
             <el-table-column label="应发" width="120" align="right">
               <template #default="{ row }">{{ money(row.grossPay) }}</template>
             </el-table-column>
@@ -914,6 +932,17 @@ onMounted(async () => {
 
 .salary__net {
   color: #f56c6c;
+}
+
+/* 折算系数：未折算时弱化显示，折算时用强调色让 HR 一眼看到「这个人当月不是整月」 */
+.salary__proration {
+  color: #e6a23c;
+  font-weight: 600;
+  cursor: help;
+}
+
+.salary__muted {
+  color: var(--oa-text-tertiary, #697180);
 }
 
 .salary__pager {
