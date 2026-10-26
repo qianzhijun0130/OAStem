@@ -7,6 +7,7 @@ import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
+import com.kellen.oa_system.common.util.LogMasker;
 import org.springframework.beans.factory.annotation.Value;
 import com.kellen.oa_system.hr.attendance.entity.AttendanceMonth;
 import com.kellen.oa_system.hr.attendance.entity.ShiftSchedule;
@@ -323,8 +324,9 @@ public class SalaryServiceImpl implements SalaryService {
         entity.setSpecialDeduct(nz(request.getSpecialDeduct()));
         entity.setChangeReason(request.getChangeReason());
         profileMapper.insert(entity);
+        // 金额不进日志：日志会落盘并被采集系统收走，且没有访问审计（BE-OPT-11）
         log.info("薪资档案新增: userId={} effective={} standard={}", entity.getUserId(),
-                entity.getEffectiveDate(), standardOf(entity));
+                entity.getEffectiveDate(), LogMasker.amount(standardOf(entity)));
         return entity.getId();
     }
 
@@ -671,8 +673,9 @@ public class SalaryServiceImpl implements SalaryService {
         writeAdjustLog(recordId, "otherIncome", "其他收入", beforeIncome, afterIncome, request.getRemark());
         writeAdjustLog(recordId, "otherDeduct", "其他扣款", beforeDeduct, afterDeduct, request.getRemark());
         rebuildItems(record);
-        log.info("薪资手工调整: recordId={} income {}→{} deduct {}→{} 原因={}", recordId,
-                beforeIncome, afterIncome, beforeDeduct, afterDeduct, request.getRemark());
+        log.info("薪资手工调整: recordId={} income {} deduct {} 原因={}", recordId,
+                LogMasker.amountChange(beforeIncome, afterIncome),
+                LogMasker.amountChange(beforeDeduct, afterDeduct), request.getRemark());
     }
 
     /**

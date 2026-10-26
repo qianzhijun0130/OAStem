@@ -128,12 +128,20 @@ public class SalaryController {
 
     @GetMapping("/records")
     @PreAuthorize("hasAuthority('hr:salary:calc')")
+    @OperationLog(module = "薪酬管理", operation = "查看薪资列表 {#query.month}")
     public Result<PageResult<SalaryRecordVO>> pageRecords(@Valid SalaryPageQuery query) {
         return Result.success(salaryService.pageRecords(query));
     }
 
+    /**
+     * 工资条详情。
+     *
+     * <p>必须记操作日志：这是全系统最敏感的读取接口，谁在什么时候看了谁的工资必须可追溯。
+     * 此前面向列表与详情都没审计，导出反而有——覆盖顺序恰好反了。</p>
+     */
     @GetMapping("/records/{id}")
     @PreAuthorize("hasAuthority('hr:salary:calc')")
+    @OperationLog(module = "薪酬管理", operation = "查看工资条 {#id}")
     public Result<SalaryPayslipVO> detail(@PathVariable Long id) {
         return Result.success(salaryService.detail(id));
     }
