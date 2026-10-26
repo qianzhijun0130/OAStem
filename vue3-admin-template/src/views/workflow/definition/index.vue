@@ -49,22 +49,18 @@ import { useDefinitionList } from './composables/useDefinitionList'
 import ImportBpmnDialog from './components/ImportBpmnDialog.vue'
 import FormBindTab from './components/tabs/FormBindTab.vue'
 import FieldPermTab from './components/tabs/FieldPermTab.vue'
+import {
+  ASSIGNEE_DEPT_LEADER,
+  ASSIGNEE_LEADER,
+  ASSIGNEE_ROLE,
+  ASSIGNEE_UNSET,
+  ASSIGNEE_USER,
+} from './assigneeConstants'
 import NodeBasicTab from './components/tabs/NodeBasicTab.vue'
+import AssigneeTab from './components/tabs/AssigneeTab.vue'
 
-/** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
-const ASSIGNEE_UNSET = 0
-const ASSIGNEE_USER = 1
-const ASSIGNEE_ROLE = 2
-const ASSIGNEE_LEADER = 3
-/**
- * 申请人本人。
- *
- * <p>用于「提交后自己复核」「自我申报」这类环节。<b>已确认的副作用</b>：任务按候选人机制
- * 派发，申请人会在自己的待办里看到这条单子（即"自己审自己"），产品层面不做拦截。</p>
- */
-const ASSIGNEE_APPLICANT = 4
-/** 指定部门主管：取某个固定部门（assigneeValue 为部门 id）的主管，与「发起人部门主管」区分 */
-const ASSIGNEE_DEPT_LEADER = 5
+// 审批人规则常量与选项由 assigneeConstants.ts 提供：父级校验与 AssigneeTab 共用同一份，
+// 避免「加了新规则能选但不被校验承认」的割裂
 
 /** 条件原文编辑权限码（不建菜单：超管经角色自动放行，其余角色默认无此码） */
 const CONDITION_RAW_PERM_CODE = 'system:flow:condition-raw'
@@ -96,24 +92,6 @@ const VALUELESS_OPS = new Set(['empty', 'notEmpty'])
 /** 条件变量名必须是合法标识符（与后端 IDENTIFIER_PATTERN 一致） */
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 
-/** BPMN 2.0 标准命名空间（前端预解析用） */
-
-/** 设计器新建画布的默认流程标识（process_1 之类），不宜直接当作业务编码使用 */
-
-/**
- * 字段权限选项（本地常量而非从 types.ts 导入值）。
- *
- * <p>{@code <script setup>} 下模板只能访问顶层绑定；此处显式声明为本地常量，
- * 既保证模板可见，也避免为一个下拉项在 API 层导出运行时代码。</p>
- */
-const ASSIGNEE_TYPE_OPTIONS = [
-  { value: ASSIGNEE_UNSET, label: '未配置' },
-  { value: ASSIGNEE_USER, label: '指定人员' },
-  { value: ASSIGNEE_ROLE, label: '指定角色' },
-  { value: ASSIGNEE_LEADER, label: '部门主管' },
-  { value: ASSIGNEE_DEPT_LEADER, label: '指定部门主管' },
-  { value: ASSIGNEE_APPLICANT, label: '申请人（本人）' },
-]
 const importDialogRef = ref<InstanceType<typeof ImportBpmnDialog> | null>(null)
 
 /** 打开导入弹窗：实际状态与解析都在 ImportBpmnDialog 内 */
@@ -1131,123 +1109,12 @@ onMounted(async () => {
 
     <!-- 标签 2：审批人配置 -->
     <el-tab-pane label="审批人配置" name="assignee">
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        title="审批人是待办归属的唯一依据"
-        description="未配置的节点在流程发起后无人可办，保存与发布时都会校验。「超时(小时)」留空则用全局默认（48 小时），填 0 表示该节点不计超时；「到期动作」在到期后由系统每分钟执行一次（仅标记 / 提醒 / 自动驳回）。"
-        class="designer__alert"
+      <AssigneeTab
+        :nodes="nodeConfig"
+        :user-options="userOptions"
+        :role-options="roleOptions"
+        :dept-options="deptOptions"
       />
-      <el-table :data="nodeConfig" size="small" border max-height="420">
-        <el-table-column label="节点" min-width="110">
-          <template #default="{ row }">
-            <div>{{ row.nodeName }}</div>
-            <el-tag size="small" :type="row.nodeKind === 'createTask' ? 'warning' : 'primary'">
-              {{ row.nodeKind === 'createTask' ? '创建任务' : '用户任务' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="规则" width="120">
-          <template #default="{ row }">
-            <el-select v-model="row.assigneeType" size="small">
-              <el-option
-                v-for="opt in ASSIGNEE_TYPE_OPTIONS"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="审批人" min-width="130">
-          <template #default="{ row }">
-            <el-select
-              v-if="row.assigneeType === ASSIGNEE_USER"
-              v-model="row.assigneeValue"
-              size="small"
-              filterable
-              placeholder="选择人员"
-            >
-              <el-option
-                v-for="u in userOptions"
-                :key="u.id"
-                :label="u.realName"
-                :value="String(u.id)"
-              />
-            </el-select>
-            <el-select
-              v-else-if="row.assigneeType === ASSIGNEE_ROLE"
-              v-model="row.assigneeValue"
-              size="small"
-              placeholder="选择角色"
-            >
-              <el-option
-                v-for="r in roleOptions"
-                :key="r.id"
-                :label="r.roleName"
-                :value="String(r.id)"
-              />
-            </el-select>
-            <el-select
-              v-else-if="row.assigneeType === ASSIGNEE_LEADER"
-              v-model="row.assigneeValue"
-              size="small"
-              placeholder="直属主管（默认）"
-              style="width: 100%"
-            >
-              <el-option label="第 1 级 · 直属主管" value="1" />
-              <el-option label="第 2 级 · 上级主管" value="2" />
-              <el-option label="第 3 级 · 再上一级" value="3" />
-            </el-select>
-            <el-tree-select
-              v-else-if="row.assigneeType === ASSIGNEE_DEPT_LEADER"
-              :model-value="row.assigneeValue ? Number(row.assigneeValue) : undefined"
-              :data="deptOptions"
-              :props="{ label: 'deptName', children: 'children' }"
-              node-key="id"
-              check-strictly
-              :render-after-expand="false"
-              filterable
-              size="small"
-              placeholder="选择部门"
-              style="width: 100%"
-              @update:model-value="(v: number | null) => (row.assigneeValue = v == null ? '' : String(v))"
-            />
-            <span v-else-if="row.assigneeType === ASSIGNEE_APPLICANT" class="designer__muted">
-              申请人本人审批（会出现在发起人的待办中）
-            </span>
-            <span v-else class="designer__warn">未配置审批人</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="超时(小时)" width="120">
-          <template #default="{ row }">
-            <!-- 留空 = 用全局默认；0 = 该节点不计超时；后端最终会 clamp 到 0~8760 -->
-            <el-input-number
-              v-model="row.timeoutHours"
-              size="small"
-              :min="0"
-              :max="8760"
-              :controls="false"
-              placeholder="默认"
-              style="width: 100%"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="到期动作" width="120">
-          <template #default="{ row }">
-            <!-- 默认 0 仅标记：不改状态、只写一条超时记录，避免误伤业务 -->
-            <el-select v-model="row.timeoutAction" size="small" placeholder="仅标记">
-              <el-option :value="0" label="仅标记" />
-              <el-option :value="1" label="提醒" />
-              <el-option :value="2" label="自动驳回" />
-            </el-select>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="请先绘制任务节点并同步" :image-size="50" />
-        </template>
-      </el-table>
     </el-tab-pane>
 
     <!-- 标签 3：表单绑定 -->
