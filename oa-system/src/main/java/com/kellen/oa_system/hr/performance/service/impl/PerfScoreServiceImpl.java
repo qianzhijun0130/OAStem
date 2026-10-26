@@ -665,34 +665,50 @@ public class PerfScoreServiceImpl implements PerfScoreService {
 
     @Override
     public BigDecimal coefficientOf(Long userId, String month) {
+        // 统一走批量实现：单人也走同一条 SQL 路径，避免两份口径不一致
         if (userId == null || !StringUtils.hasText(month)) {
             return null;
         }
+        return coefficientMap(java.util.List.of(userId), month).get(userId);
+    }
+
+    @Override
+    public java.util.Map<Long, BigDecimal> coefficientMap(java.util.Collection<Long> userIds, String month) {
+        if (userIds == null || userIds.isEmpty() || !StringUtils.hasText(month)) {
+            return java.util.Map.of();
+        }
+        List<PerfCycle> cycles = archivedCycles(month);
+        if (cycles.isEmpty()) {
+            return java.util.Map.of();
+        }
+        java.util.Set<Long> cycleIds = cycles.stream().map(PerfCycle::getId).collect(Collectors.toSet());
+        List<PerfSheet> sheets = sheetMapper.selectList(new LambdaQueryWrapper<PerfSheet>()
+                .in(PerfSheet::getUserId, userIds)
+                .in(PerfSheet::getCycleId, cycleIds)
+                .isNotNull(PerfSheet::getCoefficient)
+                .orderByDesc(PerfSheet::getCycleId));
+        java.util.Map<Long, BigDecimal> result = new java.util.HashMap<>();
+        // 已按 cycleId 倒序，putIfAbsent 等价于原实现的「取最新周期那条」
+        for (PerfSheet sheet : sheets) {
+            result.putIfAbsent(sheet.getUserId(), sheet.getCoefficient());
+        }
+        return result;
+    }
+
+    /** 区间内已归档周期（与 userId 无关，批量与单人共用） */
+    private List<PerfCycle> archivedCycles(String month) {
         YearMonth ym;
         try {
             ym = YearMonth.parse(month);
         } catch (RuntimeException e) {
-            return null;
+            return List.of();
         }
-        LocalDate start = ym.atDay(1);
-        LocalDate end = ym.atEndOfMonth();
         // 只看已归档周期：未归档的结果还可能变，不能先进工资
-        List<PerfCycle> cycles = cycleMapper.selectList(new LambdaQueryWrapper<PerfCycle>()
+        return cycleMapper.selectList(new LambdaQueryWrapper<PerfCycle>()
                 .eq(PerfCycle::getStatus, 2)
-                .le(PerfCycle::getStartDate, end)
-                .ge(PerfCycle::getEndDate, start)
+                .le(PerfCycle::getStartDate, ym.atEndOfMonth())
+                .ge(PerfCycle::getEndDate, ym.atDay(1))
                 .orderByDesc(PerfCycle::getEndDate));
-        if (cycles.isEmpty()) {
-            return null;
-        }
-        Set<Long> cycleIds = cycles.stream().map(PerfCycle::getId).collect(Collectors.toSet());
-        PerfSheet sheet = sheetMapper.selectOne(new LambdaQueryWrapper<PerfSheet>()
-                .eq(PerfSheet::getUserId, userId)
-                .in(PerfSheet::getCycleId, cycleIds)
-                .isNotNull(PerfSheet::getCoefficient)
-                .orderByDesc(PerfSheet::getCycleId)
-                .last("LIMIT 1"));
-        return sheet == null ? null : sheet.getCoefficient();
     }
 
     // ==================================================================

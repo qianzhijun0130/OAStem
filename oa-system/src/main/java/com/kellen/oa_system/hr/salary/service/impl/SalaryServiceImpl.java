@@ -393,20 +393,26 @@ public class SalaryServiceImpl implements SalaryService {
         // 3) 本年已确定的累计数（已复核及以后），用于累计预扣个税
         Map<Long, BigDecimal[]> cumulative = cumulativeBefore(text, year);
 
+        // ---- 循环前批量预取（BE-OPT-04）：把「每用户固定开销」从 ~17 条 SQL 压到 2 条 ----
+        Map<String, SocialPolicy> policies = loadPolicies(year);
+        Map<Long, BigDecimal> coeffMap = perfScoreService.coefficientMap(userIds, text);
+        Map<Long, SalaryRecord> existingMap = recordMapper.selectList(new LambdaQueryWrapper<SalaryRecord>()
+                        .eq(SalaryRecord::getMonth, text)
+                        .in(SalaryRecord::getUserId, userIds))
+                .stream().collect(Collectors.toMap(SalaryRecord::getUserId, r -> r, (a, b) -> a));
+
         int count = 0;
         for (User user : users) {
             SalaryProfile profile = profiles.get(user.getId());
-            SalaryRecord existing = recordMapper.selectOne(new LambdaQueryWrapper<SalaryRecord>()
-                    .eq(SalaryRecord::getUserId, user.getId())
-                    .eq(SalaryRecord::getMonth, text)
-                    .last("LIMIT 1"));
+            SalaryRecord existing = existingMap.get(user.getId());
             // 已复核之后的结果不允许被重算覆盖：复核过的数字是要发给员工的
             if (existing != null && existing.getStatus() != null && existing.getStatus() >= STATUS_REVIEWED) {
                 continue;
             }
             SalaryRecord record = existing == null ? new SalaryRecord() : existing;
             fillRecord(record, user, profile, attendances.get(user.getId()), text, year, monthNo,
-                    ym.atDay(1), end, cumulative.getOrDefault(user.getId(), zeroCumulative()));
+                    policies, ym.atDay(1), end, coeffMap.get(user.getId()),
+                    cumulative.getOrDefault(user.getId(), zeroCumulative()));
             if (record.getId() == null) {
                 recordMapper.insert(record);
             } else {
@@ -427,15 +433,17 @@ public class SalaryServiceImpl implements SalaryService {
      */
     private void fillRecord(SalaryRecord record, User user, SalaryProfile profile,
                             AttendanceMonth attendance, String month, int year, int monthNo,
+                            Map<String, SocialPolicy> policies,
                             LocalDate monthStart, LocalDate monthEnd,
+                            BigDecimal perfCoefficient,
                             BigDecimal[] cumulative) {
-        SocialPolicy policy = requirePolicy(profile.getCity(), year);
+        SocialPolicy policy = requirePolicy(policies, profile.getCity(), year);
 
         BigDecimal base = SalaryCalculator.scale(profile.getBaseSalary());
         BigDecimal post = SalaryCalculator.scale(profile.getPostSalary());
         // 绩效工资 = 档案里的绩效基数 × 当期绩效系数；没有归档结果时按 1.0 并在备注标注，
         // 绝不因为「绩效还没归档」就把整月工资卡住不发
-        BigDecimal perfCoefficient = perfScoreService.coefficientOf(user.getId(), month);
+        // 系数由调用方批量预取后传入（原先每人查两次：周期列表 + 考核表）
         String perfNote = perfCoefficient == null
                 ? "绩效系数按 1.0（本期无归档绩效）"
                 : "绩效系数 " + perfCoefficient.stripTrailingZeros().toPlainString();
@@ -983,20 +991,29 @@ public class SalaryServiceImpl implements SalaryService {
         return latestProfiles(Set.of(userId), at).get(userId);
     }
 
-    private SocialPolicy requirePolicy(String city, int year) {
-        LambdaQueryWrapper<SocialPolicy> wrapper = new LambdaQueryWrapper<SocialPolicy>()
-                .eq(SocialPolicy::getPolicyYear, year);
-        if (StringUtils.hasText(city)) {
-            wrapper.eq(SocialPolicy::getCity, city);
+    /**
+     * 批量预取某年全部社保政策，按城市建索引（BE-OPT-04）。
+     *
+     * <p>原先每个员工查一次，而 cities 的取值域通常 ≤10 个、year 恒定——500 人就是 500 次重复查询。
+     * 政策表量级只有数百行，一次全取更划算。</p>
+     */
+    private Map<String, SocialPolicy> loadPolicies(int year) {
+        Map<String, SocialPolicy> index = new HashMap<>();
+        List<SocialPolicy> list = policyMapper.selectList(new LambdaQueryWrapper<SocialPolicy>()
+                .eq(SocialPolicy::getPolicyYear, year)
+                .orderByAsc(SocialPolicy::getId));
+        for (SocialPolicy policy : list) {
+            // 同城市多条时取 id 最小的那条，与原实现 orderByAsc(id).LIMIT 1 一致
+            index.putIfAbsent(policy.getCity(), policy);
         }
-        SocialPolicy policy = policyMapper.selectOne(wrapper.orderByAsc(SocialPolicy::getId).last("LIMIT 1"));
-        if (policy == null && StringUtils.hasText(city)) {
-            // 员工档案指定了城市但没配政策时，回落到「默认」城市，而不是让核算整批失败
-            policy = policyMapper.selectOne(new LambdaQueryWrapper<SocialPolicy>()
-                    .eq(SocialPolicy::getPolicyYear, year)
-                    .eq(SocialPolicy::getCity, "默认")
-                    .orderByAsc(SocialPolicy::getId)
-                    .last("LIMIT 1"));
+        return index;
+    }
+
+    /** 从预取索引取政策；指定城市缺失时回落「默认」，两者都没有才抛错 */
+    private SocialPolicy requirePolicy(Map<String, SocialPolicy> index, String city, int year) {
+        SocialPolicy policy = StringUtils.hasText(city) ? index.get(city) : null;
+        if (policy == null) {
+            policy = index.get("默认");
         }
         if (policy == null) {
             throw new BizException(ErrorCode.HR_SALARY_POLICY_MISSING,

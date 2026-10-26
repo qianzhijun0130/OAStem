@@ -97,13 +97,19 @@ def main():
        f"n={len(history)} first={history[0]['effectiveDate'] if history else None}")
 
     # ---------------- 4. 核算前置：考勤未封账 → 6402 ----------------
-    mysql(f"INSERT INTO oa_system.oa_attendance_month (user_id, month, should_days, actual_days, status) "
-          f"VALUES ({MAIN_USER}, '{MONTH}', 21, 21, 1)")
+    # BIZ-OPT-04 之后：核算要求范围内**每个**员工都有考勤月结，缺一个就整批阻断，
+    # 因此这里给全部门都造月结（原先只造主测试用户，会被"缺少考勤汇总"拦下）
+    dept_users = [int(x) for x in mysql(
+        f"SELECT id FROM oa_system.oa_user WHERE is_deleted=0 AND dept_id={DEPT} "
+        f"AND employment_status IN (2,3,4)").split()]
+    for uid in dept_users:
+        mysql(f"INSERT INTO oa_system.oa_attendance_month (user_id, month, should_days, actual_days, status) "
+              f"VALUES ({uid}, '{MONTH}', 21, 21, 1)")
     code, body = req("POST", f"/hr/salary/calc?month={MONTH}&deptId={DEPT}", tok=admin)
     ck("考勤未封账时拒绝核算 → 6402", body.get("code") == 6402,
        f"code={body.get('code')} msg={body.get('message')}")
 
-    mysql(f"UPDATE oa_system.oa_attendance_month SET status=2 WHERE user_id={MAIN_USER} AND month='{MONTH}'")
+    mysql(f"UPDATE oa_system.oa_attendance_month SET status=2 WHERE month='{MONTH}'")
 
     # ---------------- 5. 核算与金额口径 ----------------
     code, body = req("POST", f"/hr/salary/calc?month={MONTH}&deptId={DEPT}", tok=admin)

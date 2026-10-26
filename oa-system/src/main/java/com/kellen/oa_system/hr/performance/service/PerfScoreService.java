@@ -74,4 +74,13 @@ public interface PerfScoreService {
      * @return 归档周期的系数；没有归档结果时返回 null，调用方按 1.0 处理并标注
      */
     BigDecimal coefficientOf(Long userId, String month);
+
+    /**
+     * 批量取绩效系数（BE-OPT-04）。
+     *
+     * <p>核算时按人循环调 {@code coefficientOf} 会让「查已归档周期」这一步对每个员工重复一次，
+     * 而周期列表与 userId 无关。批量版本只查一次周期、一次考核表。
+     * 无归档结果的 userId <b>不会</b>出现在返回 Map 中（调用方按「无结果 = 系数 1.0」处理）。</p>
+     */
+    java.util.Map<Long, BigDecimal> coefficientMap(java.util.Collection<Long> userIds, String month);
 }
