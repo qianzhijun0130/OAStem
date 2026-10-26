@@ -15,7 +15,7 @@
  * <p>设计器与「编辑」共用本页：带路由 {@code ?id=} 进编辑态（载入并覆盖保存），
  * 不带 id 进新建态。</p>
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFormDetailApi, getFormOptionsApi, saveFormApi } from '@/api/form'
@@ -37,6 +37,33 @@ const editId = computed(() => (route.query.id ? Number(route.query.id) : null))
 const isEdit = computed(() => editId.value !== null)
 
 const designerRef = ref<DesignerInstance | null>(null)
+
+/**
+ * 设计器插件是否已安装。
+ *
+ * <p>{@code @form-create/designer} 约 4.8M，只有本页面用得到，因此不在 main.ts 全局注册。
+ * 就绪前不渲染 {@code <fc-designer>}，否则会渲染成未知元素、留下一片空白。</p>
+ *
+ * <p><b>注意</b>：该包的默认导出是<b>组件对象</b>，插件安装器是独立的命名导出 {@code install}。
+ * 直接 {@code app.use(mod.default)} 拿不到 install，Vue 会静默忽略、组件解析失败（表现为白屏且不报错）。</p>
+ */
+/**
+ * 设计器组件按需加载。
+ *
+ * <p>{@code @form-create/designer} 约 4.8M，只有本页面用得到，因此不在 main.ts 全局注册——
+ * 全局注册会把它塞进 entry，让所有页面为首屏多下 2MB（实测 entry 2039kB → 1091kB）。</p>
+ *
+ * <p><b>为什么用 defineAsyncComponent 而不是 app.use</b>：该包的默认导出是<b>组件对象</b>，
+ * 插件安装器是独立的命名导出 {@code install}，而 {@code app.use({install})} 实测并未注册出
+ * {@code <fc-designer>}（控制台报 Failed to resolve component）。直接异步渲染默认导出最稳。</p>
+ */
+const FcDesignerComp = defineAsyncComponent(async () => {
+  const mod = await import('@form-create/designer') as unknown as {
+    default?: unknown
+    designerForm?: unknown
+  }
+  return (mod.default ?? mod.designerForm) as never
+})
 const formOptions = ref<FormVO[]>([])
 
 /** 保存状态：保存后不跳转、不重载，仅更新状态指示（详见 useSaveState） */
@@ -275,7 +302,7 @@ onMounted(() => {
 
     <el-card shadow="never" class="form-designer__canvas">
       <!-- FormCreate 官方设计器：左侧组件面板拖拽，右侧配置，底部实时预览 -->
-      <fc-designer ref="designerRef" height="calc(100vh - 400px)" />
+      <component :is="FcDesignerComp" ref="designerRef" height="calc(100vh - 400px)" />
     </el-card>
   </div>
 </template>

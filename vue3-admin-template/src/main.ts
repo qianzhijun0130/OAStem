@@ -20,7 +20,6 @@ import 'element-plus/dist/index.css'
  */
 import FcRender from '@form-create/element-ui'
 
-import designer from '@form-create/designer'
 
 import App from './App.vue'
 import router from './router'
@@ -70,7 +69,9 @@ app.component('ResponsiveDialog', ResponsiveDialog)
 
 // FormCreate 渲染器：全局注册 <form-create> 组件（导出对象是组件定义，不是 Vue 插件）
 app.component('FormCreate', FcRender)
-// FormCreate 设计器：提供 <fc-designer> 组件；规则解析沿用同一套渲染器，故无需重复注册
-app.use(designer)
+// FormCreate 设计器（@form-create/designer）**故意不在这里注册**：
+// 它约 4.8M，全仓只有 system/form/designer.vue 用得到 <fc-designer>。全局注册会把它塞进 entry，
+// 让登录页、工作台等所有页面都为首屏多下一大块（实测 entry 2039kB → 摘掉后 1091kB）。
+// 改为该页面 onMounted 里动态 import 后运行时安装，见 views/system/form/designer.vue。
 
 app.mount('#app')
