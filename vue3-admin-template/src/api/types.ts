@@ -1957,3 +1957,14 @@ export interface PerfAppealHandleRequest {
   opinion?: string
   score?: number
 }
+
+/** 节点↔表单绑定（oa_flow_node_form 的业务视图；父级 nodeFormBinds 的元素结构） */
+export interface NodeFormBindRow {
+  id: number
+  nodeKey: string
+  nodeName: string
+  formId: number
+  formName: string
+  formCode: string
+  isPrimary: number
+}

@@ -50,6 +50,7 @@ import DefinitionTable from './components/DefinitionTable.vue'
 import { useDefinitionList } from './composables/useDefinitionList'
 import ImportBpmnDialog from './components/ImportBpmnDialog.vue'
 import FormBindTab from './components/tabs/FormBindTab.vue'
+import FieldPermTab from './components/tabs/FieldPermTab.vue'
 
 /** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
 const ASSIGNEE_UNSET = 0
@@ -106,12 +107,6 @@ const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/
  * <p>{@code <script setup>} 下模板只能访问顶层绑定；此处显式声明为本地常量，
  * 既保证模板可见，也避免为一个下拉项在 API 层导出运行时代码。</p>
  */
-const FIELD_PERMISSION_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 1, label: '只读' },
-  { value: 2, label: '可编辑' },
-  { value: 3, label: '隐藏' },
-]
-
 const ASSIGNEE_TYPE_OPTIONS = [
   { value: ASSIGNEE_UNSET, label: '未配置' },
   { value: ASSIGNEE_USER, label: '指定人员' },
@@ -1333,65 +1328,15 @@ onMounted(async () => {
 
     <!-- 标签 4：字段权限 -->
     <el-tab-pane label="字段权限" name="field">
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        title="未配置的字段默认只读"
-        description="审批场景下默认放开风险更高：审批人误改申请人填写的内容比看不到更难追销。如需让某个节点填写部分字段（如销假节点填「销假日期」），在这里把对应字段改为「可编辑」。"
-        class="designer__alert"
+      <FieldPermTab
+        v-model:node-key="permNodeKey"
+        :node-options="permNodes"
+        :form-name="currentPermBind?.formName ?? null"
+        :fields="permFields"
+        :saving="savingPerm"
+        @change="onPermNodeChange"
+        @save="saveFieldPermissions"
       />
-      <div class="designer__field-bar">
-        <el-select
-          v-model="permNodeKey"
-          placeholder="选择节点"
-          style="width: 220px"
-          @change="onPermNodeChange"
-        >
-          <el-option
-            v-for="n in permNodes"
-            :key="n.nodeKey"
-            :label="n.nodeName"
-            :value="n.nodeKey"
-          />
-        </el-select>
-        <span v-if="currentPermBind" class="designer__muted">
-          表单：{{ currentPermBind.formName }}
-        </span>
-        <el-button
-          type="primary"
-          size="small"
-          :disabled="!permNodeKey || !currentPermBind || !permFields.length"
-          :loading="savingPerm"
-          @click="saveFieldPermissions"
-        >
-          保存权限
-        </el-button>
-      </div>
-      <el-table :data="permFields" size="small" border max-height="400">
-        <el-table-column prop="label" label="字段" min-width="140">
-          <template #default="{ row }">
-            {{ row.label || row.prop }}
-            <el-tag v-if="!row.configured" size="small" type="info">默认</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="prop" label="字段标识" min-width="130" show-overflow-tooltip />
-        <el-table-column label="权限" width="130">
-          <template #default="{ row }">
-            <el-select v-model="row.permission" size="small">
-              <el-option
-                v-for="opt in FIELD_PERMISSION_OPTIONS"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="请先选择节点，并在「表单绑定」标签页为该节点绑定表单" :image-size="50" />
-        </template>
-      </el-table>
     </el-tab-pane>
 
     <!-- 标签 5：流程属性（bpmn-js 官方属性面板挂载点，选中画布元素后展示其标准属性） -->

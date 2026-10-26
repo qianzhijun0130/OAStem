@@ -1,15 +1,5 @@
 <script setup lang="ts">
-/** 节点↔表单绑定项（与父级 nodeFormBinds 的元素结构一致） */
-export interface NodeFormBindRow {
-  id: number
-  nodeKey: string
-  nodeName: string
-  formId: number
-  formName: string
-  formCode: string
-  isPrimary: number
-}
-
+import type { NodeFormBindRow } from '@/api/types'
 /**
  * 设计器「表单绑定」标签页（FE-OPT-05 拆分自 index.vue）。
  *
