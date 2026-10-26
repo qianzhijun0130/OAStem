@@ -229,7 +229,7 @@ async function cancelLeave(row: LeaveVO) {
 async function returnFromLeave(row: LeaveVO) {
   const startDate = (row.startTime || '').slice(0, 10)
   const endDate = (row.endTime || '').slice(0, 10)
-  let returnDate = ''
+  let returnDate: string
   try {
     const result = await ElMessageBox.prompt(
       `登记实际返岗日期（须晚于 ${startDate}，不晚于 ${endDate} 次日）。差额额度会自动退回。`,

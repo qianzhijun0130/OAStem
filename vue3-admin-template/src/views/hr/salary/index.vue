@@ -510,7 +510,14 @@ onMounted(async () => {
           <el-table v-loading="recordLoading" :data="records" border class="salary__record-table">
             <el-table-column prop="month" label="月份" width="95" />
             <el-table-column prop="workNumber" label="工号" width="105" />
-            <el-table-column prop="realName" label="姓名" width="95" />
+            <el-table-column label="姓名" width="150">
+              <template #default="{ row }">
+                <span>{{ row.realName }}</span>
+                <el-tooltip v-if="row.priorEmployerIncome" :content="row.priorEmployerTip" placement="top">
+                  <el-tag size="small" type="warning" effect="plain" class="salary__prior">跨单位</el-tag>
+                </el-tooltip>
+              </template>
+            </el-table-column>
             <el-table-column prop="deptName" label="部门" min-width="120" show-overflow-tooltip />
             <el-table-column label="折算系数" width="110" align="center">
               <template #default="{ row }">
@@ -943,6 +950,12 @@ onMounted(async () => {
 
 .salary__muted {
   color: var(--oa-text-tertiary, #697180);
+}
+
+/* 换单位标记：本年度在前单位有收入，个税需年度汇算合并 */
+.salary__prior {
+  margin-left: 6px;
+  cursor: help;
 }
 
 .salary__pager {

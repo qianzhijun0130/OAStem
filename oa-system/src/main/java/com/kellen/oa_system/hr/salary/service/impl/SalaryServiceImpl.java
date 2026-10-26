@@ -1128,6 +1128,23 @@ public class SalaryServiceImpl implements SalaryService {
         return vos;
     }
 
+    /**
+     * 是否本年度有前单位收入：参加工作时间早于入职日，且落在核算年度内。
+     *
+     * <p>判定只用系统内已有字段（`work_start_date` / `entry_date`），不去读任何外部数据——
+     * 读不到前单位收入，只能提示用户去年度汇算合并。</p>
+     */
+    private boolean hasPriorEmployerIncome(User user, String month) {
+        if (user == null || user.getWorkStartDate() == null || user.getEntryDate() == null
+                || month == null || month.length() < 4) {
+            return false;
+        }
+        if (!user.getWorkStartDate().isBefore(user.getEntryDate())) {
+            return false;   // 首次工作即本单位入职，不存在前单位
+        }
+        return String.valueOf(user.getWorkStartDate().getYear()).equals(month.substring(0, 4));
+    }
+
     private List<SalaryRecordVO> toRecordVOs(List<SalaryRecord> list) {
         if (list.isEmpty()) {
             return List.of();
@@ -1163,6 +1180,13 @@ public class SalaryServiceImpl implements SalaryService {
             vo.setCompanyCost(SalaryCalculator.scale(nz(r.getSocialCompany()).add(nz(r.getFundCompany()))));
             vo.setStatus(r.getStatus());
             vo.setStatusLabel(STATUS_LABEL.getOrDefault(r.getStatus(), "未知"));
+            // 换单位员工提示：个税累计口径只含本单位收入，前单位部分需并入年度汇算
+            if (hasPriorEmployerIncome(u, r.getMonth())) {
+                vo.setPriorEmployerIncome(true);
+                vo.setPriorEmployerTip("本年度在前单位已有收入，个税只按本单位收入预扣，需在年度汇算合并计算");
+            } else {
+                vo.setPriorEmployerIncome(false);
+            }
             vo.setCalcTime(r.getCalcTime());
             vo.setPayTime(r.getPayTime());
             vos.add(vo);

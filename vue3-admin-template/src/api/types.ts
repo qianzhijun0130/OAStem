@@ -1637,6 +1637,10 @@ export interface SalaryRecordVO {
   prorationFactor?: number
   /** 折算后标准工资 */
   proratedStandard?: number
+  /** 本年度是否有前单位收入（需年度汇算合并个税） */
+  priorEmployerIncome?: boolean
+  /** 换单位提示文案 */
+  priorEmployerTip?: string
   attendanceDeduct: number
   socialPersonal: number
   fundPersonal: number

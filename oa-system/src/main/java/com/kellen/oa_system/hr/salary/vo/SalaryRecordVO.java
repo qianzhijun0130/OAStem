@@ -41,6 +41,17 @@ public class SalaryRecordVO {
     /** 折算后标准工资 */
     private BigDecimal proratedStandard;
 
+    /**
+     * 本年度是否有前单位收入（参加工作时间早于入职日且同在本年度）。
+     *
+     * <p>个税累计预扣只统计本单位发放的收入，前单位那部分不在系统里；
+     * 这类员工的实际税负要等年度汇算，因此必须在核算页显著提示，不能悄悄按本单位收入算完就算完。</p>
+     */
+    private Boolean priorEmployerIncome;
+
+    /** 提示文案（为 null 表示无需提示） */
+    private String priorEmployerTip;
+
     /** 考勤扣款 */
     private BigDecimal attendanceDeduct;
 

@@ -22,6 +22,5 @@ export const ASYNC_ERROR_PREFIX = '[已被统一兜底]'
 
 /** 记录一个已被兜底的异步错误。 */
 export function logAsyncError(label: string, error: unknown): void {
-  // eslint-disable-next-line no-console
   console.error(`${ASYNC_ERROR_PREFIX} ${label}`, error)
 }
