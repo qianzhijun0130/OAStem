@@ -523,10 +523,37 @@ public class ApprovalServiceImpl implements ApprovalService {
             applicants.add(inst.getApplicantId());
         }
         Map<Long, String[]> org = resolveOrg(applicants);
+
+        // 流程名与处理人姓名同样批量预取。
+        // 此前 toRecordVO 内部逐行调 flowNameOf / userName，一页 10 条就多 20 次单行查询——
+        // 注释写着「已改成一次批量」，实际只预取了实例，另两项仍在逐行查（BE-OPT-05）。
+        Set<Long> flowDefIds = new HashSet<>();
+        Set<Long> handlerIds = new HashSet<>();
+        for (ApprovalRecord r : page.getRecords()) {
+            handlerIds.add(r.getHandlerId());
+            ApprovalInstance inst = instMap.get(r.getInstanceId());
+            if (inst != null && inst.getFlowDefId() != null) {
+                flowDefIds.add(inst.getFlowDefId());
+            }
+        }
+        Map<Long, String> flowNameMap = new HashMap<>();
+        if (!flowDefIds.isEmpty()) {
+            for (FlowDefinition fd : flowDefinitionMapper.selectBatchIds(flowDefIds)) {
+                flowNameMap.put(fd.getId(), fd.getFlowName());
+            }
+        }
+        Map<Long, String> handlerNameMap = new HashMap<>();
+        handlerIds.remove(null);
+        if (!handlerIds.isEmpty()) {
+            for (User u : userMapper.selectBatchIds(handlerIds)) {
+                handlerNameMap.put(u.getId(), u.getRealName());
+            }
+        }
+
         List<ApprovalRecordVO> vos = new ArrayList<>();
         for (ApprovalRecord r : page.getRecords()) {
             ApprovalInstance inst = instMap.get(r.getInstanceId());
-            ApprovalRecordVO vo = toRecordVO(r, inst);
+            ApprovalRecordVO vo = toRecordVO(r, inst, flowNameMap, handlerNameMap);
             String[] names = inst == null ? null : org.get(inst.getApplicantId());
             if (names != null) {
                 vo.setDeptName(names[0]);
@@ -1803,6 +1830,33 @@ public class ApprovalServiceImpl implements ApprovalService {
     /** 单条记录转 VO（详情时间轴用）：自行取单据，适合数据量小的场景 */
     private ApprovalRecordVO toRecordVO(ApprovalRecord r) {
         return toRecordVO(r, instanceMapper.selectById(r.getInstanceId()));
+    }
+
+    /**
+     * 列表用：单据、流程名、处理人姓名全部由调用方批量预取。
+     *
+     * <p>取不到时回退单查——保证单条调用的路径（{@code detail} 等）行为不变，
+     * 也让预取缺失不会导致字段变空。</p>
+     */
+    private ApprovalRecordVO toRecordVO(ApprovalRecord r, ApprovalInstance preloaded,
+                                       Map<Long, String> flowNames, Map<Long, String> handlerNames) {
+        ApprovalRecordVO vo = new ApprovalRecordVO();
+        vo.setInstanceId(r.getInstanceId());
+        ApprovalInstance inst = preloaded != null ? preloaded : instanceMapper.selectById(r.getInstanceId());
+        vo.setTitle(inst != null ? inst.getTitle() : null);
+        String flowName = null;
+        if (inst != null && inst.getFlowDefId() != null) {
+            flowName = flowNames.get(inst.getFlowDefId());
+        }
+        vo.setFlowName(flowName != null ? flowName : flowNameOf(inst));
+        vo.setNodeName(r.getNodeName());
+        String handlerName = handlerNames.get(r.getHandlerId());
+        vo.setHandlerName(handlerName != null ? handlerName : userName(r.getHandlerId()));
+        vo.setAction(r.getAction());
+        vo.setActionName(ACTION_NAME.get(r.getAction()));
+        vo.setOpinion(r.getOpinion());
+        vo.setCreateTime(fmt(r.getCreateTime()));
+        return vo;
     }
 
     /** 列表用：单据由调用方批量预取后传入，避免逐条查询 */
