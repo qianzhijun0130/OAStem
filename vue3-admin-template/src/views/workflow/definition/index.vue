@@ -49,6 +49,7 @@ import BranchConditionEditor from '../components/BranchConditionEditor.vue'
 import DefinitionTable from './components/DefinitionTable.vue'
 import { useDefinitionList } from './composables/useDefinitionList'
 import ImportBpmnDialog from './components/ImportBpmnDialog.vue'
+import FormBindTab from './components/tabs/FormBindTab.vue'
 
 /** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
 const ASSIGNEE_UNSET = 0
@@ -1322,49 +1323,12 @@ onMounted(async () => {
 
     <!-- 标签 3：表单绑定 -->
     <el-tab-pane label="表单绑定" name="form">
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        title="节点表单的运行时填单页尚未开放"
-        description="当前版本完成绑定与持久化；中间节点的填单与字段权限将在后续版本提供。发起环节的表单已可在「发起申请」页使用。"
-        class="designer__alert"
+      <FormBindTab
+        :nodes="bindableNodes"
+        :form-options="formOptions"
+        :binds="nodeFormBinds"
+        @bind="onBindForm"
       />
-      <el-table :data="bindableNodes" size="small" border max-height="420">
-        <el-table-column prop="nodeName" label="流程节点" min-width="130" />
-        <el-table-column label="绑定表单" min-width="180">
-          <template #default="{ row }">
-            <el-select
-              :model-value="bindOf(row.nodeKey)?.formId ?? null"
-              placeholder="未绑定"
-              clearable
-              filterable
-              size="small"
-              style="width: 100%"
-              @change="(val: number | null) => onBindForm(row.nodeKey, val)"
-            >
-              <el-option
-                v-for="f in formOptions"
-                :key="f.id"
-                :label="`${f.formName}（${f.formCode}）`"
-                :value="f.id"
-              />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="主表单" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="bindOf(row.nodeKey)?.isPrimary === 1" type="success" size="small">
-              主
-            </el-tag>
-            <span v-else class="designer__muted">-</span>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div class="designer__muted designer__muted--block">
-        发起申请（init）默认作为主表单，决定「发起申请」页渲染的申请内容；
-        中间节点可各自绑定表单，为后续的节点级填单预留。
-      </div>
     </el-tab-pane>
 
     <!-- 标签 4：字段权限 -->
