@@ -49,6 +49,7 @@ import type {
 } from '@/api/types'
 import { logAsyncError } from '@/utils/asyncGuard'
 import BranchConditionEditor from '../components/BranchConditionEditor.vue'
+import DefinitionTable from './components/DefinitionTable.vue'
 
 /** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
 const ASSIGNEE_UNSET = 0
@@ -1130,11 +1131,6 @@ async function applyStatus(row: FlowDefinitionVO, status: number, tip: string) {
 }
 
 /** 状态展示：草稿 / 已发布 */
-function statusTag(row: FlowDefinitionVO): { type: 'success' | 'info'; label: string } {
-  return row.status === FLOW_STATUS_PUBLISHED
-    ? { type: 'success', label: '已发布' }
-    : { type: 'info', label: '草稿' }
-}
 
 onMounted(async () => {
   await loadOptions()
@@ -1181,52 +1177,14 @@ onMounted(async () => {
         </span>
       </div>
 
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column prop="flowCode" label="流程编码" width="160" />
-        <el-table-column prop="flowName" label="流程名称" min-width="160" />
-        <el-table-column prop="category" label="分类" width="120">
-          <template #default="{ row }">{{ row.category || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="bpmnKey" label="BPMN Key" width="160">
-          <template #default="{ row }">{{ row.bpmnKey || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="statusTag(row).type">{{ statusTag(row).label }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="180" />
-        <el-table-column label="操作" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button icon-only link type="primary" @click="openEdit(row)">设计</el-button>
-            <!-- 发布 / 下架按状态互斥显示：已发布不出「发布」，未发布不出「下架」 -->
-            <el-button icon-only
-              v-if="row.status !== FLOW_STATUS_PUBLISHED"
-              v-permission="'system:flow:edit'"
-              link
-              type="success"
-              @click="publishFlow(row)"
-            >
-              发布
-            </el-button>
-            <el-button icon-only
-              v-if="row.status === FLOW_STATUS_PUBLISHED"
-              v-permission="'system:flow:edit'"
-              link
-              type="warning"
-              @click="unpublishFlow(row)"
-            >
-              下架
-            </el-button>
-            <el-button icon-only v-permission="'system:flow:delete'" link type="danger" @click="remove(row)">
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="暂无流程模板" />
-        </template>
-      </el-table>
+      <DefinitionTable
+        :list="list"
+        :loading="loading"
+        @edit="openEdit"
+        @publish="publishFlow"
+        @unpublish="unpublishFlow"
+        @remove="remove"
+      />
 
       <el-pagination
         v-model:current-page="query.pageNo"
