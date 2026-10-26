@@ -14,7 +14,7 @@ import type { DictDataVO } from '@/api/types'
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
 const DEFAULT_PROCESS_ID = /^[Pp]rocess_?\d*$/
 
-const props = defineProps<{
+defineProps<{
   /** 流程分类下拉（字典 flow_category，由父页面统一加载，避免组件重复请求） */
   categoryOptions: DictDataVO[]
 }>()

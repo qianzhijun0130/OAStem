@@ -3,7 +3,7 @@
  * 流程模板管理：列表 + bpmn-js 可视化设计器 + 节点审批人配置 + 动态表单字段配置。
  */
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormRules } from 'element-plus'
 import BpmnModeler from '@/components/bpmn/BpmnModeler.vue'
 import type { GatewayFlowInfo } from '@/components/bpmn/BpmnModeler.vue'
 import { useUserStore } from '@/stores/user'
@@ -15,8 +15,6 @@ import {
   saveFlowApi,
   updateFlowStatusApi,
 } from '@/api/flow'
-import AppIcon from '@/components/icons/AppIcon.vue'
-import { LUCIDE_ICON_NAMES } from '@/utils/icons'
 import { getRoleOptionsApi } from '@/api/role'
 import { getDeptTreeApi } from '@/api/dept'
 import { getDictDataByTypeApi } from '@/api/dict'
@@ -51,6 +49,7 @@ import { useDefinitionList } from './composables/useDefinitionList'
 import ImportBpmnDialog from './components/ImportBpmnDialog.vue'
 import FormBindTab from './components/tabs/FormBindTab.vue'
 import FieldPermTab from './components/tabs/FieldPermTab.vue'
+import NodeBasicTab from './components/tabs/NodeBasicTab.vue'
 
 /** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
 const ASSIGNEE_UNSET = 0
@@ -145,7 +144,7 @@ const categoryOptions = ref<DictDataVO[]>([])
 const designerVisible = ref(false)
 const submitting = ref(false)
 const editingId = ref<number | null>(null)
-const formRef = ref<FormInstance>()
+const nodeBasicRef = ref<{ validate: () => Promise<boolean> } | null>(null)
 const modelerRef = ref<InstanceType<typeof BpmnModeler>>()
 const currentXml = ref('')
 
@@ -795,10 +794,7 @@ function needAssigneeValue(type: number) {
 }
 
 async function save() {
-  if (!formRef.value) {
-    return
-  }
-  const valid = await formRef.value.validate().catch(() => false)
+  const valid = await nodeBasicRef.value?.validate()
   if (!valid) {
     return
   }
@@ -1118,81 +1114,19 @@ onMounted(async () => {
   <el-tabs v-model="activeSideTab" class="designer__tabs">
     <!-- 标签 1：节点基本 -->
     <el-tab-pane label="节点基本" name="node">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="流程编码" prop="flowCode">
-          <el-input
-            v-model="form.flowCode"
-            :disabled="hasDeployment"
-            placeholder="如 leave_apply、expense_apply"
-          />
-          <div class="designer__muted">
-            仅限字母、数字、下划线，保存后不可修改。流程图里的流程标识会自动对齐为该编码，无需在画布中另外设置。
-          </div>
-        </el-form-item>
-        <el-form-item label="流程名称" prop="flowName">
-          <el-input v-model="form.flowName" placeholder="如 请假流程" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="form.category" placeholder="请选择分类" clearable style="width: 100%">
-            <el-option
-              v-for="item in categoryOptions"
-              :key="item.id"
-              :label="item.itemLabel"
-              :value="item.itemValue"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="流程图标">
-          <div class="designer__icon-picker">
-            <el-select
-              v-model="form.icon"
-              filterable
-              clearable
-              placeholder="选择图标（可选）"
-              style="width: 260px"
-            >
-              <el-option v-for="name in LUCIDE_ICON_NAMES" :key="name" :label="name" :value="name">
-                <span class="designer__icon-option">
-                  <AppIcon :name="name" :size="14" />{{ name }}
-                </span>
-              </el-option>
-            </el-select>
-            <span class="designer__icon-preview">
-              <AppIcon :name="form.icon || 'FileText'" :size="20" />
-              <span class="designer__muted">发起页卡片图标</span>
-            </span>
-          </div>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-radio-group v-model="form.status">
-            <el-radio :value="FLOW_STATUS_DRAFT">草稿</el-radio>
-            <el-radio :value="FLOW_STATUS_PUBLISHED">已发布</el-radio>
-          </el-radio-group>
-          <div class="designer__muted">保存后仍需在列表点「发布」才对外可见</div>
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="form.remark" type="textarea" :rows="2" />
-        </el-form-item>
-
-        <el-divider content-position="left">已识别节点</el-divider>
-        <el-table :data="nodeConfig" size="small" border max-height="260">
-          <el-table-column label="节点" min-width="120">
-            <template #default="{ row }">
-              <div>{{ row.nodeName }}</div>
-              <el-tag size="small" :type="row.nodeKind === 'createTask' ? 'warning' : 'primary'">
-                {{ row.nodeKind === 'createTask' ? '创建任务' : '用户任务' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="nodeId" label="节点 ID" min-width="110" show-overflow-tooltip />
-          <template #empty>
-            <el-empty description="请先绘制任务节点并同步" :image-size="50" />
-          </template>
-        </el-table>
-        <div class="designer__muted designer__muted--block">
-          含用户任务与创建任务两类；两者都支持配置审批人。
-        </div>
-      </el-form>
+      <NodeBasicTab
+        ref="nodeBasicRef"
+        v-model:flow-code="form.flowCode"
+        v-model:flow-name="form.flowName"
+        v-model:category="form.category"
+        v-model:icon="form.icon"
+        v-model:status="form.status"
+        v-model:remark="form.remark"
+        :rules="rules"
+        :has-deployment="hasDeployment"
+        :category-options="categoryOptions"
+        :node-config="nodeConfig"
+      />
     </el-tab-pane>
 
     <!-- 标签 2：审批人配置 -->
@@ -1484,4 +1418,4 @@ onMounted(async () => {
   </div>
 </template>
 
-<style scoped src="./definition.css"></style>
+<style src="./definition.css"></style>

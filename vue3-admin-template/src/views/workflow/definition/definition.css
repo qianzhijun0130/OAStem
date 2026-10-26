@@ -1,4 +1,11 @@
-/* 流程模板页样式：从 index.vue 抽出（FE-OPT-05），减少单文件体积 */
+/*
+ * 流程模板页样式（FE-OPT-05 从 index.vue 抽出）。
+ *
+ * 本文件**不 scoped**（index.vue 里是 <style src>）。原因：`.designer__*` /`.flow-def__*` /
+ * `.import__*` 这些类被拆出去的子组件（DefinitionTable、ImportBpmnDialog、各 tab）直接使用，
+ * 而子组件内部元素拿不到父级 scope id——保持 scoped 会让图标选择器布局、说明文字字号等全部失效。
+ * 全部选择器都带页面专属 BEM 前缀，无裸元素、无 .el- 组件覆盖，因此全局化不会影响其它页面。
+ */
 .designer__icon-picker {
   display: flex;
   align-items: center;
@@ -73,11 +80,11 @@
 }
 
 /* 标签页：内容区留出下方内边距，避免与滚动条贴边 */
-.designer__tabs :deep(.el-tabs__content) {
+.designer__tabs .el-tabs__content {
   padding: 12px 2px 4px;
 }
 
-.designer__tabs :deep(.el-tabs__header) {
+.designer__tabs .el-tabs__header {
   margin-bottom: 0;
 }
 
