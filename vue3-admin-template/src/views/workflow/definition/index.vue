@@ -3,7 +3,7 @@
  * 流程模板管理：列表 + bpmn-js 可视化设计器 + 节点审批人配置 + 动态表单字段配置。
  */
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import BpmnModeler from '@/components/bpmn/BpmnModeler.vue'
 import type { GatewayFlowInfo } from '@/components/bpmn/BpmnModeler.vue'
 import { useUserStore } from '@/stores/user'
@@ -12,7 +12,6 @@ import {
   getFlowDetailApi,
   getFlowBpmnApi,
   getFlowVariablesApi,
-  importFlowApi,
   saveFlowApi,
   updateFlowStatusApi,
 } from '@/api/flow'
@@ -49,6 +48,7 @@ import { logAsyncError } from '@/utils/asyncGuard'
 import BranchConditionEditor from '../components/BranchConditionEditor.vue'
 import DefinitionTable from './components/DefinitionTable.vue'
 import { useDefinitionList } from './composables/useDefinitionList'
+import ImportBpmnDialog from './components/ImportBpmnDialog.vue'
 
 /** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
 const ASSIGNEE_UNSET = 0
@@ -96,10 +96,8 @@ const VALUELESS_OPS = new Set(['empty', 'notEmpty'])
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 
 /** BPMN 2.0 标准命名空间（前端预解析用） */
-const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
 
 /** 设计器新建画布的默认流程标识（process_1 之类），不宜直接当作业务编码使用 */
-const DEFAULT_PROCESS_ID = /^[Pp]rocess_?\d*$/
 
 /**
  * 字段权限选项（本地常量而非从 types.ts 导入值）。
@@ -121,6 +119,13 @@ const ASSIGNEE_TYPE_OPTIONS = [
   { value: ASSIGNEE_DEPT_LEADER, label: '指定部门主管' },
   { value: ASSIGNEE_APPLICANT, label: '申请人（本人）' },
 ]
+const importDialogRef = ref<InstanceType<typeof ImportBpmnDialog> | null>(null)
+
+/** 打开导入弹窗：实际状态与解析都在 ImportBpmnDialog 内 */
+function openImport() {
+  importDialogRef.value?.open()
+}
+
 const {
   loading,
   list,
@@ -662,96 +667,6 @@ async function loadOptions() {
   }
 }
 
-// ---------------- 导入 BPMN ----------------
-const importVisible = ref(false)
-const importing = ref(false)
-const importFileName = ref('')
-const importXml = ref('')
-const importSummary = ref('')
-
-const importForm = reactive({ flowCode: '', flowName: '', category: '' })
-
-function openImport() {
-  importVisible.value = true
-  importFileName.value = ''
-  importXml.value = ''
-  importSummary.value = ''
-  Object.assign(importForm, { flowCode: '', flowName: '', category: '' })
-}
-
-/**
- * 前端先读一遍 XML，用于预填流程编码/名称并提示节点数。
- * 这里只是「预填」——后端仍会用权威解析器重新解析，前端不做审批人判定。
- */
-function parseBpmnMeta(xml: string) {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml')
-  if (doc.getElementsByTagName('parsererror').length > 0) {
-    return null
-  }
-  const process = doc.getElementsByTagNameNS(BPMN_NS, 'process')[0]
-  if (!process) {
-    return null
-  }
-  return {
-    key: process.getAttribute('id') ?? '',
-    name: process.getAttribute('name') ?? '',
-    nodeCount: doc.getElementsByTagNameNS(BPMN_NS, 'userTask').length,
-  }
-}
-
-function handleImportFile(uploadFile: UploadFile) {
-  const file = uploadFile.raw
-  if (!file) {
-    return
-  }
-  importFileName.value = file.name
-  void file.text().then((text) => {
-    importXml.value = text
-    const meta = parseBpmnMeta(text)
-    if (!meta) {
-      importSummary.value = '无法解析该文件，请确认是合法的 BPMN 2.0 XML'
-      return
-    }
-    // 默认标识（process_1）没有业务含义，不预填而是提醒用户自己起名——
-    // 流程编码保存后不可修改，直接沿用会让模板列表里出现一堆 process_1
-    const isDefaultId = DEFAULT_PROCESS_ID.test(meta.key)
-    if (!importForm.flowCode && !isDefaultId) {
-      importForm.flowCode = meta.key
-    }
-    if (!importForm.flowName) {
-      importForm.flowName = meta.name
-    }
-    importSummary.value = isDefaultId
-      ? `文件用的是默认流程标识 ${meta.key}，请自行填写流程编码；用户任务 ${meta.nodeCount} 个`
-      : `process id = ${meta.key}，用户任务 ${meta.nodeCount} 个`
-  })
-}
-
-async function submitImport() {
-  if (!importXml.value) {
-    ElMessage.warning('请先选择 BPMN 文件')
-    return
-  }
-  importing.value = true
-  try {
-    const id = await importFlowApi({
-      bpmnXml: importXml.value,
-      flowCode: importForm.flowCode.trim() || undefined,
-      flowName: importForm.flowName.trim() || undefined,
-      category: (importForm.category || '').trim() || undefined,
-    })
-    ElMessage.success('导入成功，流程已部署')
-    importVisible.value = false
-    await loadPage()
-    // 直接进入设计器：导入只自动解析「已按约定标注」的审批人，其余需在此补配
-    await openEdit(await getFlowDetailApi(id))
-  } catch (error) {
-    logAsyncError('导入 BPMN 失败', error)
-  } finally {
-    importing.value = false
-  }
-}
-
 /** 解析模板里存的 JSON 配置，坏数据不影响页面可用 */
 function parseJson<T>(json: string | undefined, fallback: T): T {
   if (!json) {
@@ -1105,6 +1020,12 @@ async function applyStatus(row: FlowDefinitionVO, status: number, tip: string) {
 }
 
 /** 状态展示：草稿 / 已发布 */
+
+/** 导入成功后：刷新列表 + 直接进入设计器补配审批人（导入只自动解析已按约定标注的） */
+async function onImported(id: number) {
+  await loadPage()
+  await openEdit(await getFlowDetailApi(id))
+}
 
 onMounted(async () => {
   await loadOptions()
@@ -1650,58 +1571,7 @@ onMounted(async () => {
       </template>
     </ResponsiveDialog>
 
-    <ResponsiveDialog
-      v-model="importVisible"
-      title="导入 BPMN 生成流程模板"
-      width="600px"
-      :close-on-click-modal="false"
-    >
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        class="import__tip"
-        title="节点审批人按约定自动解析；未按约定标注的节点，导入后在设计器里补配即可"
-        description="约定一（Flowable 标准属性）：flowable:candidateGroups=&quot;leader&quot; 部门主管，&quot;role:角色id&quot; 指定角色，flowable:candidateUsers=&quot;用户id&quot; 指定人员。约定二（扩展元素）：oa:assignee type=&quot;user|role|leader&quot; value=&quot;...&quot;。"
-      />
-      <el-form label-width="90px">
-        <el-form-item label="BPMN 文件">
-          <el-upload
-            :auto-upload="false"
-            :show-file-list="false"
-            accept=".bpmn,.xml"
-            :on-change="handleImportFile"
-          >
-            <el-button>选择文件</el-button>
-          </el-upload>
-          <span v-if="importFileName" class="import__file">{{ importFileName }}</span>
-        </el-form-item>
-        <el-form-item label="流程编码">
-          <el-input v-model="importForm.flowCode" placeholder="留空则取文件的 process id，建议手动填写" />
-        </el-form-item>
-        <el-form-item label="流程名称">
-          <el-input v-model="importForm.flowName" placeholder="留空取 BPMN 的 process name" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <!-- 同上：与 flow_category 字典同源，导入时不接受字典外的分类 -->
-          <el-select v-model="importForm.category" placeholder="请选择分类" clearable style="width: 100%">
-            <el-option
-              v-for="item in categoryOptions"
-              :key="item.id"
-              :label="item.itemLabel"
-              :value="item.itemValue"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="解析结果">
-          <span class="designer__muted">{{ importSummary || '请先选择 BPMN 文件' }}</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="submitImport">导入并部署</el-button>
-      </template>
-    </ResponsiveDialog>
+    <ImportBpmnDialog ref="importDialogRef" :category-options="categoryOptions" @imported="onImported" />
   </div>
 </template>
 
