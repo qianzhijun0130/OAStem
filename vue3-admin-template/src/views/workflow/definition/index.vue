@@ -17,12 +17,7 @@ import { getDeptTreeApi } from '@/api/dept'
 import { getDictDataByTypeApi } from '@/api/dict'
 import { getUserCandidatesApi } from '@/api/user'
 import {
-  bindNodeFormApi,
   getFormOptionsApi,
-  getNodeFieldPermissionsApi,
-  getNodeFormsApi,
-  saveNodeFieldPermissionsApi,
-  unbindNodeFormApi,
 } from '@/api/form'
 import type {
   DeptVO,
@@ -32,7 +27,6 @@ import type {
   FlowDefinitionVO,
   FormFieldItem,
   NodeConfigItem,
-  NodeFieldPermissionItem,
   RoleOptionVO,
   UserVO,
 } from '@/api/types'
@@ -52,6 +46,8 @@ import {
 } from './assigneeConstants'
 import NodeBasicTab from './components/tabs/NodeBasicTab.vue'
 import { useFlowConditions } from './composables/useFlowConditions'
+import { useNodeForms } from './composables/useNodeForms'
+import { useFieldPermission } from './composables/useFieldPermission'
 import AssigneeTab from './components/tabs/AssigneeTab.vue'
 
 // 审批人规则常量与选项由 assigneeConstants.ts 提供：父级校验与 AssigneeTab 共用同一份，
@@ -116,15 +112,10 @@ const nodeConfig = ref<NodeConfigItem[]>([])
  */
 const formFields = ref<FormFieldItem[]>([])
 
-/** 节点↔表单绑定（node_form_binds）：节点键 → 绑定项 */
-const nodeFormBinds = ref<Array<{ id: number; nodeKey: string; nodeName: string; formId: number; formName: string; formCode: string; isPrimary: number }>>([])
 /** 可选表单（已发布/启用的表单定义） */
 const formOptions = ref<Array<{ id: number; formCode: string; formName: string }>>([])
 /** 右侧面板当前标签页 */
 const activeSideTab = ref('node')
-
-/** 发起环节的节点键，与后端 /primary-form 的约定一致 */
-const INIT_NODE_KEY = 'init'
 
 /* ---------------- 分支条件配置 ----------------
  *
@@ -169,134 +160,22 @@ const {
   },
 })
 
-/* ---------------- 字段权限配置 ---------------- */
-const permNodeKey = ref('')
-const permFields = ref<NodeFieldPermissionItem[]>([])
-const savingPerm = ref(false)
-
-/**
- * 可配置字段权限的节点列表。
- *
- * <p>只列<b>已绑定表单</b>的节点：字段权限依附于「节点↔表单」关系，
- * 未绑定时配置无处生效，让用户先到「表单绑定」标签页绑定。</p>
- */
-const permNodes = computed(() =>
-  nodeFormBinds.value.map((b) => ({ nodeKey: b.nodeKey, nodeName: b.nodeName })),
-)
-
-/** 当前选中节点的绑定信息 */
-const currentPermBind = computed(() => (permNodeKey.value ? bindOf(permNodeKey.value) : null))
-
-/** 切换节点：载入该节点的字段权限清单 */
-async function onPermNodeChange(nodeKey: string) {
-  permFields.value = []
-  const bind = bindOf(nodeKey)
-  if (!editingId.value || !bind) {
-    return
-  }
-  try {
-    const vo = await getNodeFieldPermissionsApi(editingId.value, nodeKey, bind.formId)
-    permFields.value = vo.fields ?? []
-  } catch (error) {
-    logAsyncError('加载节点字段权限失败', error)
-  }
-}
-
-/** 保存当前节点的字段权限（整节点全量覆盖） */
-async function saveFieldPermissions() {
-  const bind = currentPermBind.value
-  if (!editingId.value || !bind || !permFields.value.length) {
-    return
-  }
-  savingPerm.value = true
-  try {
-    await saveNodeFieldPermissionsApi({
-      flowDefId: editingId.value,
-      nodeKey: permNodeKey.value,
-      nodeName: bind.nodeName,
-      formId: bind.formId,
-      fields: permFields.value.map((f) => ({
-        prop: f.prop,
-        fieldLabel: f.label,
-        permission: f.permission,
-      })),
-    })
-    ElMessage.success('字段权限已保存')
-    // 回读一次，让 configured 标记与后端一致
-    await onPermNodeChange(permNodeKey.value)
-  } catch (error) {
-    logAsyncError('保存字段权限失败', error)
-  } finally {
-    savingPerm.value = false
-  }
-}
-
-/**
- * 表单绑定下拉的候选节点。
- *
- * <p>发起环节（init）恒在最前并作为主表单候选；其余为画布上的任务节点。
- * 绑定关系以 nodeKey 为键，与后端 {@code oa_flow_node_form} 的约定一致。</p>
- */
-const bindableNodes = computed(() => {
-  const rest = nodeConfig.value.map((n) => ({ nodeKey: n.nodeId, nodeName: n.nodeName }))
-  return [{ nodeKey: INIT_NODE_KEY, nodeName: '发起申请（init）' }, ...rest]
+/* 节点↔表单绑定与字段权限在 composables/useNodeForms.ts / useFieldPermission.ts */
+const { nodeFormBinds, bindableNodes, bindOf, loadNodeForms, onBindForm } = useNodeForms({
+  editingId,
+  nodeConfig,
+  formOptions,
 })
 
-function bindOf(nodeKey: string) {
-  return nodeFormBinds.value.find((b) => b.nodeKey === nodeKey) ?? null
-}
-
-/** 加载某流程模板的节点表单绑定 */
-async function loadNodeForms(flowDefId: number) {
-  try {
-    const list = await getNodeFormsApi(flowDefId)
-    nodeFormBinds.value = list.map((b) => ({
-      id: b.id ?? 0,
-      nodeKey: b.nodeKey,
-      nodeName: b.nodeName ?? b.nodeKey,
-      formId: b.formId,
-      formName: b.formName ?? '',
-      formCode: b.formCode ?? '',
-      isPrimary: b.isPrimary ?? 0,
-    }))
-  } catch (error) {
-    logAsyncError('加载节点表单绑定失败', error)
-  }
-}
-
-/** 绑定/重绑某节点的表单：后端为全量覆盖语义，重绑即替换 */
-async function onBindForm(nodeKey: string, formId: number | null) {
-  if (!editingId.value) {
-    ElMessage.warning('请先保存流程模板，再绑定节点表单')
-    return
-  }
-  const existing = bindOf(nodeKey)
-  try {
-    if (!formId) {
-      if (existing?.id) {
-        await unbindNodeFormApi(existing.id)
-      }
-      nodeFormBinds.value = nodeFormBinds.value.filter((b) => b.nodeKey !== nodeKey)
-      return
-    }
-    const target = formOptions.value.find((f) => f.id === formId)
-    // 发起环节默认作为主表单；中间节点一律非主表单（同一流程只允许一个主表单）
-    const isPrimary = nodeKey === INIT_NODE_KEY ? 1 : 0
-    await bindNodeFormApi({
-      flowDefId: editingId.value,
-      nodeKey,
-      nodeName: bindableNodes.value.find((n) => n.nodeKey === nodeKey)?.nodeName ?? nodeKey,
-      formId,
-      isPrimary,
-    })
-    await loadNodeForms(editingId.value)
-    ElMessage.success(target ? `已绑定表单「${target.formName}」` : '已绑定表单')
-  } catch (error) {
-    logAsyncError('绑定节点表单失败', error)
-    // 回滚下拉选中值，避免 UI 显示与后端不一致
-    await loadNodeForms(editingId.value)
-  }
-}
+const {
+  permNodeKey,
+  permFields,
+  savingPerm,
+  permNodes,
+  currentPermBind,
+  onPermNodeChange,
+  saveFieldPermissions,
+} = useFieldPermission({ editingId, binds: nodeFormBinds, bindOf })
 
 const rules: FormRules = {
   flowCode: [
