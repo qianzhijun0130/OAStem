@@ -11,7 +11,6 @@ import {
   deleteFlowApi,
   getFlowDetailApi,
   getFlowBpmnApi,
-  getFlowPageApi,
   getFlowVariablesApi,
   importFlowApi,
   saveFlowApi,
@@ -37,7 +36,6 @@ import type {
   DictDataVO,
   FlowConditionItem,
   FlowConditionRule,
-  FlowDefinitionPageQuery,
   FlowDefinitionSaveRequest,
   FlowDefinitionVO,
   FlowVariableVO,
@@ -50,6 +48,7 @@ import type {
 import { logAsyncError } from '@/utils/asyncGuard'
 import BranchConditionEditor from '../components/BranchConditionEditor.vue'
 import DefinitionTable from './components/DefinitionTable.vue'
+import { useDefinitionList } from './composables/useDefinitionList'
 
 /** 审批人规则类型：0未配置 1指定人员 2指定角色 3部门主管 4申请人 5指定部门主管 */
 const ASSIGNEE_UNSET = 0
@@ -122,10 +121,16 @@ const ASSIGNEE_TYPE_OPTIONS = [
   { value: ASSIGNEE_DEPT_LEADER, label: '指定部门主管' },
   { value: ASSIGNEE_APPLICANT, label: '申请人（本人）' },
 ]
-const loading = ref(false)
-const list = ref<FlowDefinitionVO[]>([])
-const total = ref(0)
-const query = reactive<FlowDefinitionPageQuery>({ pageNo: 1, pageSize: 10 })
+const {
+  loading,
+  list,
+  total,
+  query,
+  loadPage,
+  handleSizeChange,
+  handlePageChange,
+  resetQuery,
+} = useDefinitionList()
 
 /** 用户/角色/部门下拉数据（审批人配置用） */
 const userOptions = ref<UserVO[]>([])
@@ -635,29 +640,6 @@ const rules: FormRules = {
 /** 是否已有可发起的部署（决定提示文案） */
 const hasDeployment = computed(() => Boolean(editingId.value))
 
-async function loadPage() {
-  loading.value = true
-  try {
-    const res = await getFlowPageApi(query)
-    list.value = res.records
-    total.value = res.total
-  } catch (error) {
-    logAsyncError('加载流程模板列表失败', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSizeChange(size: number) {
-  query.pageSize = size
-  void loadPage()
-}
-
-function handlePageChange(page: number) {
-  query.pageNo = page
-  void loadPage()
-}
-
 async function loadOptions() {
   try {
     const [users, roles, depts, categories, forms] = await Promise.all([
@@ -678,14 +660,6 @@ async function loadOptions() {
   } catch (error) {
     logAsyncError('加载审批人选项失败', error)
   }
-}
-
-function resetQuery() {
-  query.flowName = undefined
-  query.status = undefined
-  query.category = undefined
-  query.pageNo = 1
-  void loadPage()
 }
 
 // ---------------- 导入 BPMN ----------------
