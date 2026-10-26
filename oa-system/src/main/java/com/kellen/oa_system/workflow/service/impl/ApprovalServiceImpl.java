@@ -461,12 +461,53 @@ public class ApprovalServiceImpl implements ApprovalService {
         }
         List<Task> tasks = engine.listCandidateTasks(String.valueOf(userId), (pageNo - 1) * pageSize, pageSize);
         List<ApprovalTodoVO> vos = new ArrayList<>();
+        if (tasks.isEmpty()) {
+            return PageResult.of(vos, total, (long) pageNo, (long) pageSize);
+        }
+
+        // 三处批量预取（BE-OPT-05）：实例、流程名、申请人姓名。
+        // 原实现每条任务一次 selectOne + 每行两次单查，一页 10 条即约 30 条 SQL。
+        Set<String> procIds = new HashSet<>();
+        for (Task t : tasks) {
+            if (t.getProcessInstanceId() != null) {
+                procIds.add(t.getProcessInstanceId());
+            }
+        }
+        Map<String, ApprovalInstance> instByProc = new HashMap<>();
+        if (!procIds.isEmpty()) {
+            for (ApprovalInstance inst : instanceMapper.selectList(new LambdaQueryWrapper<ApprovalInstance>()
+                    .in(ApprovalInstance::getProcInstId, procIds)
+                    .eq(ApprovalInstance::getIsDeleted, 0))) {
+                instByProc.put(inst.getProcInstId(), inst);
+            }
+        }
+        Set<Long> flowDefIds = new HashSet<>();
+        Set<Long> applicantIds = new HashSet<>();
+        for (ApprovalInstance inst : instByProc.values()) {
+            if (inst.getFlowDefId() != null) {
+                flowDefIds.add(inst.getFlowDefId());
+            }
+            if (inst.getApplicantId() != null) {
+                applicantIds.add(inst.getApplicantId());
+            }
+        }
+        Map<Long, String> flowNameMap = new HashMap<>();
+        if (!flowDefIds.isEmpty()) {
+            for (FlowDefinition fd : flowDefinitionMapper.selectBatchIds(flowDefIds)) {
+                flowNameMap.put(fd.getId(), fd.getFlowName());
+            }
+        }
+        Map<Long, String> applicantNameMap = new HashMap<>();
+        if (!applicantIds.isEmpty()) {
+            for (User u : userMapper.selectBatchIds(applicantIds)) {
+                applicantNameMap.put(u.getId(), u.getRealName());
+            }
+        }
+
         // instanceId → applicantId：循环结束后一次性解析部门/公司，避免逐行查库
         Map<Long, Long> applicantOfInstance = new HashMap<>();
         for (Task t : tasks) {
-            ApprovalInstance inst = instanceMapper.selectOne(new LambdaQueryWrapper<ApprovalInstance>()
-                    .eq(ApprovalInstance::getProcInstId, t.getProcessInstanceId())
-                    .eq(ApprovalInstance::getIsDeleted, 0));
+            ApprovalInstance inst = instByProc.get(t.getProcessInstanceId());
             if (inst == null) {
                 continue;
             }
@@ -474,8 +515,11 @@ public class ApprovalServiceImpl implements ApprovalService {
             vo.setTaskId(t.getId());
             vo.setInstanceId(inst.getId());
             vo.setTitle(inst.getTitle());
-            vo.setFlowName(flowNameOf(inst));
-            vo.setApplicantName(userName(inst.getApplicantId()));
+            String flowName = inst.getFlowDefId() == null ? null : flowNameMap.get(inst.getFlowDefId());
+            vo.setFlowName(flowName != null ? flowName : flowNameOf(inst));
+            String applicantName = inst.getApplicantId() == null ? null
+                    : applicantNameMap.get(inst.getApplicantId());
+            vo.setApplicantName(applicantName != null ? applicantName : userName(inst.getApplicantId()));
             vo.setCurrentNode(t.getName() != null ? t.getName() : t.getTaskDefinitionKey());
             vo.setCreateTime(fmt(t.getCreateTime()));
             vos.add(vo);
