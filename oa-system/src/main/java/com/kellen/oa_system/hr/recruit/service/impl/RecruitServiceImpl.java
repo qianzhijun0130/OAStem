@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
+import com.kellen.oa_system.common.util.LogMasker;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.hr.common.support.HrRoles;
 import com.kellen.oa_system.hr.position.entity.Position;
@@ -422,7 +423,8 @@ public class RecruitServiceImpl implements RecruitService {
             }
             patch.setAuthorized(1);
             candidateMapper.updateById(patch);
-            log.info("候选人合并: 手机号={} 原 id={}", request.getMobile(), existing.getId());
+            // 手机号属个人信息，日志中必须脱敏（BE-OPT-11 全仓扫出的最后一处）
+            log.info("候选人合并: 手机号={} 原 id={}", LogMasker.mobile(request.getMobile()), existing.getId());
             return existing.getId();
         }
 
