@@ -40,11 +40,14 @@ import com.kellen.oa_system.system.entity.Department;
 import com.kellen.oa_system.system.entity.User;
 import com.kellen.oa_system.system.mapper.DepartmentMapper;
 import com.kellen.oa_system.system.mapper.UserMapper;
+import com.kellen.oa_system.system.service.support.DataScopeSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -65,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -111,6 +115,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     private final UserMapper userMapper;
     private final DepartmentMapper departmentMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
+    private final DataScopeSupport dataScopeSupport;
     private final LeaveMapper leaveMapper;
     private final BusinessTripMapper tripMapper;
     private final OvertimeMapper overtimeMapper;
@@ -513,8 +518,17 @@ public class AttendanceServiceImpl implements AttendanceService {
         if (!force) {
             wrapper.eq(ShiftSchedule::getSettled, 0);
         }
-        List<ShiftSchedule> schedules = scheduleMapper.selectList(wrapper);
-        if (schedules.isEmpty()) {
+        return settleSchedules(scheduleMapper.selectList(wrapper), date);
+    }
+
+    /**
+     * 对给定排班执行日结。
+     *
+     * <p>从 {@link #settleDate} 抽出，供「整天全量日结」与「单人区间重算」共用同一套判定规则——
+     * 若各自实现，两边的缺勤/迟到判定稍有差异就会出现「重算结果与原结果不一致」的怪象。</p>
+     */
+    private int settleSchedules(List<ShiftSchedule> schedules, LocalDate date) {
+        if (schedules == null || schedules.isEmpty()) {
             return 0;
         }
         // 一次性把当天「已通过的请假 / 出差」查出来：日结是按人循环，逐人查库会变成 N+1
@@ -558,6 +572,104 @@ public class AttendanceServiceImpl implements AttendanceService {
         return handled;
     }
 
+    // ==================================================================
+    // 假勤审批终态后的重算（BE-OPT-01）
+    // ==================================================================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int invalidateSettlement(Long userId, LocalDate from, LocalDate to) {
+        if (userId == null || from == null || to == null || to.isBefore(from)) {
+            return 0;
+        }
+        // 两侧都要置 0：settleDate(force=false) 以排班 settled 为判据，
+        // 而考勤行的 settled 表示「结果是否已结算」，只改一侧会出现「重算了但没覆盖」的中间态
+        int affected = scheduleMapper.update(null, new LambdaUpdateWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getUserId, userId)
+                .between(ShiftSchedule::getScheduleDate, from, to)
+                .set(ShiftSchedule::getSettled, 0));
+        attendanceMapper.update(null, new LambdaUpdateWrapper<Attendance>()
+                .eq(Attendance::getUserId, userId)
+                .between(Attendance::getAttendanceDate, from, to)
+                .set(Attendance::getSettled, 0));
+        return affected;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int resettle(Long userId, LocalDate from, LocalDate to) {
+        if (userId == null || from == null || to == null || to.isBefore(from)) {
+            return 0;
+        }
+        assertMonthNotLocked(from, to);
+        invalidateSettlement(userId, from, to);
+        return settleSchedules(loadSchedules(userId, from, to), from, to);
+    }
+
+    @Override
+    public void resettleAfterCommit(Long userId, LocalDate from, LocalDate to) {
+        Runnable task = () -> {
+            try {
+                resettle(userId, from, to);
+            } catch (Exception e) {
+                // 提交后失败不回滚审批，但必须留下可追溯线索。
+                // 月结侧有「请假/出差当天不计旷工」的互斥兜底，单次失败不会再造成重复扣款。
+                log.error("审批后重算考勤失败，请手工执行日结重算: userId={} {}~{}", userId, from, to, e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+        } else {
+            task.run();
+        }
+    }
+
+    /** 逐日执行日结：按日期分组，保证每个日期的假勤集合只查一次 */
+    private int settleSchedules(List<ShiftSchedule> schedules, LocalDate from, LocalDate to) {
+        Map<LocalDate, List<ShiftSchedule>> byDate = new TreeMap<>();
+        for (ShiftSchedule s : schedules) {
+            byDate.computeIfAbsent(s.getScheduleDate(), k -> new ArrayList<>()).add(s);
+        }
+        int total = 0;
+        for (Map.Entry<LocalDate, List<ShiftSchedule>> entry : byDate.entrySet()) {
+            total += settleSchedules(entry.getValue(), entry.getKey());
+        }
+        return total;
+    }
+
+    private List<ShiftSchedule> loadSchedules(Long userId, LocalDate from, LocalDate to) {
+        return scheduleMapper.selectList(new LambdaQueryWrapper<ShiftSchedule>()
+                .eq(ShiftSchedule::getUserId, userId)
+                .between(ShiftSchedule::getScheduleDate, from, to));
+    }
+
+    /**
+     * 区间内任一月已封账则直接失败。
+     *
+     * <p>封账的意义是「结果不能再变」；静默跳过会让「审批已通过、考勤没变」一路带到工资单，
+     * 所以这里显式抛错，让审批人知道要走 {@code unlockMonth} 的解锁流程。</p>
+     */
+    private void assertMonthNotLocked(LocalDate from, LocalDate to) {
+        Set<String> months = new LinkedHashSet<>();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            months.add(YearMonth.from(d).format(MONTH_FORMAT));
+        }
+        for (String month : months) {
+            Long locked = monthMapper.selectCount(new LambdaQueryWrapper<AttendanceMonth>()
+                    .eq(AttendanceMonth::getMonth, month)
+                    .eq(AttendanceMonth::getStatus, 2));
+            if (locked != null && locked > 0) {
+                throw new BizException(ErrorCode.HR_ATTENDANCE_LOCKED,
+                        month + " 考勤已封账，假勤变更需先由超级管理员解封后再重算");
+            }
+        }
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int settleMonth(String month) {
@@ -593,6 +705,9 @@ public class AttendanceServiceImpl implements AttendanceService {
         aggregateLeaveDays(start, end, onLeaveAll, leaveDays);
         aggregateTripDays(start, end, onTripAll, tripDays);
         aggregateOvertime(start, end, overtimeHours);
+        // 互斥兜底：请假/出差覆盖的日期不允许再计入旷工。
+        // 即使某次审批回调漏了重算（考勤行仍是「缺勤」），月汇总也不会出现「旷工 + 请假」双重扣款。
+        Map<Long, Set<LocalDate>> leaveTripDates = collectLeaveTripDates(start, end);
 
         int count = 0;
         for (Long userId : userIds) {
@@ -605,6 +720,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 continue;
             }
             List<Attendance> mine = byUser.getOrDefault(userId, List.of());
+            Set<LocalDate> covered = leaveTripDates.getOrDefault(userId, Set.of());
             BigDecimal actual = BigDecimal.ZERO;
             BigDecimal absent = BigDecimal.ZERO;
             int late = 0;
@@ -614,7 +730,8 @@ public class AttendanceServiceImpl implements AttendanceService {
                 if (a.getCheckInTime() != null) {
                     actual = actual.add(BigDecimal.ONE);
                 }
-                if (Objects.equals(a.getAttendanceStatus(), STATUS_ABSENT)) {
+                if (Objects.equals(a.getAttendanceStatus(), STATUS_ABSENT)
+                        && !covered.contains(a.getAttendanceDate())) {
                     absent = absent.add(BigDecimal.ONE);
                 }
                 if (Objects.equals(a.getAttendanceStatus(), STATUS_LATE)) {
@@ -759,6 +876,42 @@ public class AttendanceServiceImpl implements AttendanceService {
     }
 
     /**
+     * 收集区间内每人被「已通过请假/出差」覆盖的日期集合。
+     *
+     * <p>用途是月结的互斥兜底：考勤行可能因为审批晚于日结而残留「缺勤」，
+     * 但只要当天在请假或出差区间内，就不允许再计入 {@code absent_days}，
+     * 否则薪资会按「旷工 2 倍 + 假别」重复扣款。</p>
+     */
+    private Map<Long, Set<LocalDate>> collectLeaveTripDates(LocalDate start, LocalDate end) {
+        Map<Long, Set<LocalDate>> dates = new HashMap<>();
+        List<Leave> leaves = leaveMapper.selectList(new LambdaQueryWrapper<Leave>()
+                .eq(Leave::getLeaveStatus, 2)
+                .le(Leave::getStartTime, end.atTime(23, 59, 59))
+                .ge(Leave::getEndTime, start.atStartOfDay()));
+        for (Leave leave : leaves) {
+            LocalDate from = leave.getStartTime().toLocalDate();
+            LocalDate to = leave.getEndTime().toLocalDate();
+            LocalDate overlapFrom = from.isBefore(start) ? start : from;
+            LocalDate overlapTo = to.isAfter(end) ? end : to;
+            for (LocalDate d = overlapFrom; !d.isAfter(overlapTo); d = d.plusDays(1)) {
+                dates.computeIfAbsent(leave.getUserId(), k -> new HashSet<>()).add(d);
+            }
+        }
+        List<BusinessTrip> trips = tripMapper.selectList(new LambdaQueryWrapper<BusinessTrip>()
+                .eq(BusinessTrip::getTripStatus, 2)
+                .le(BusinessTrip::getStartDate, end)
+                .ge(BusinessTrip::getEndDate, start));
+        for (BusinessTrip trip : trips) {
+            LocalDate overlapFrom = trip.getStartDate().isBefore(start) ? start : trip.getStartDate();
+            LocalDate overlapTo = trip.getEndDate().isAfter(end) ? end : trip.getEndDate();
+            for (LocalDate d = overlapFrom; !d.isAfter(overlapTo); d = d.plusDays(1)) {
+                dates.computeIfAbsent(trip.getUserId(), k -> new HashSet<>()).add(d);
+            }
+        }
+        return dates;
+    }
+
+    /**
      * 按假别汇总本月天数。
      *
      * <p>跨月的请假单按「重叠天数 / 总跨度天数 × 请假天数」折算，
@@ -796,8 +949,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     /** 出差天数：按自然日重叠天数累加（出差不区分假别，只影响「是否算出勤」） */
     private void aggregateTripDays(LocalDate start, LocalDate end, Set<Long> userIds,
-                                   Map<Long, BigDecimal> target) {
-        if (userIds.isEmpty()) {
+                                   Map<Long, BigDecimal> target) {        if (userIds.isEmpty()) {
             return;
         }
         List<BusinessTrip> trips = tripMapper.selectList(new LambdaQueryWrapper<BusinessTrip>()
@@ -905,6 +1057,12 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     /** 数据范围 → 用户ID列表；返回 null 表示不受限（全部数据） */
     private List<Long> visibleUserIds() {
+        // 快照为空 = 调用方漏标 @DataScope。返回 null 会被上层当成"不受限"，
+        // 造成导出类接口静默越权（BE-OPT-02），因此直接失败而不是放行。
+        if (dataScopeSupport.currentSnapshot() == null) {
+            throw new IllegalStateException(
+                    "调用方未标 @DataScope，数据权限无法判定：" + getClass().getSimpleName() + "#visibleUserIds");
+        }
         if (hrDataScopeSupport.isUnrestricted()) {
             return null;
         }
@@ -1082,6 +1240,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     }
 
     @Override
+    @DataScope
     public void exportMonth(String month, Long deptId, HttpServletResponse response) {
         List<AttendanceMonthVO> rows = toMonthVOs(monthMapper.selectList(deptQuery(month, deptId)));
         List<String> headers = List.of("工号", "姓名", "部门", "月份", "应出勤(天)", "实际出勤(天)",
@@ -1109,19 +1268,40 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .eq(AttendanceMonth::getMonth, month)
                 // 表里没有 dept_id（部门来自 oa_user），先按人排，导出时再按部门归组展示
                 .orderByAsc(AttendanceMonth::getUserId);
+
+        // 数据范围（本部门+下级 / 仅本人 / 全部）。exportMonth 已标 @DataScope；
+        // 一旦漏标，visibleUserIds 会直接抛错，而不是让导出静默返回全公司数据（BE-OPT-02）。
+        List<Long> scopedUsers = visibleUserIds();
+
+        List<Long> deptUsers = null;
         if (deptId != null) {
             List<Long> deptIds = new ArrayList<>();
             deptIds.add(deptId);
             collectChildDepts(deptId, deptIds);
-            List<Long> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+            deptUsers = userMapper.selectList(new LambdaQueryWrapper<User>()
                             .in(User::getDeptId, deptIds).select(User::getId))
                     .stream().map(User::getId).toList();
-            if (users.isEmpty()) {
-                // 空集合不能拼 IN ()：用一个不可能成立的 id 让查询自然返回空
-                wrapper.eq(AttendanceMonth::getUserId, -1L);
-            } else {
-                wrapper.in(AttendanceMonth::getUserId, users);
-            }
+        }
+
+        // 部门筛选与数据范围取交集；两者都没有时不受限
+        List<Long> allowed;
+        if (scopedUsers == null) {
+            allowed = deptUsers;
+        } else if (deptUsers == null) {
+            allowed = scopedUsers;
+        } else {
+            Set<Long> scope = new HashSet<>(scopedUsers);
+            allowed = deptUsers.stream().filter(scope::contains).toList();
+        }
+
+        if (allowed == null) {
+            return wrapper;
+        }
+        if (allowed.isEmpty()) {
+            // 空集合不能拼 IN ()：用一个不可能成立的 id 让查询自然返回空
+            wrapper.eq(AttendanceMonth::getUserId, -1L);
+        } else {
+            wrapper.in(AttendanceMonth::getUserId, allowed);
         }
         return wrapper;
     }

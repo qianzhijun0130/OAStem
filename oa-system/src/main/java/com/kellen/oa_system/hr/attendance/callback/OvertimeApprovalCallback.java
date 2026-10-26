@@ -3,6 +3,7 @@ package com.kellen.oa_system.hr.attendance.callback;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.kellen.oa_system.hr.attendance.entity.Overtime;
 import com.kellen.oa_system.hr.attendance.mapper.OvertimeMapper;
+import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.leave.service.LeaveQuotaService;
 import com.kellen.oa_system.workflow.callback.ApprovalCallback;
 import com.kellen.oa_system.workflow.entity.ApprovalInstance;
@@ -38,6 +39,7 @@ public class OvertimeApprovalCallback implements ApprovalCallback {
 
     private final OvertimeMapper overtimeMapper;
     private final LeaveQuotaService quotaService;
+    private final AttendanceService attendanceService;
 
     @Override
     public String flowCode() {
@@ -51,6 +53,7 @@ public class OvertimeApprovalCallback implements ApprovalCallback {
             return;
         }
         patch(overtime.getId(), 2);
+        resettleFor(overtime);
         if (Objects.equals(overtime.getCompensateType(), COMPENSATE_LEAVE)
                 && overtime.getHours() != null && overtime.getHours().signum() > 0) {
             BigDecimal days = overtime.getHours().divide(HOURS_PER_DAY, 2, RoundingMode.HALF_UP);
@@ -82,6 +85,20 @@ public class OvertimeApprovalCallback implements ApprovalCallback {
             return;
         }
         patch(overtime.getId(), status);
+        resettleFor(overtime);
+    }
+
+    /**
+     * 加班状态影响当天的出勤解释（休息日加班日的工时口径），审批变化后需要重算当天考勤。
+     *
+     * <p>与请假/出差回调保持同一处理方式：提交后重算，不在审批事务里做日结读写。</p>
+     */
+    private void resettleFor(Overtime overtime) {
+        if (overtime.getOvertimeDate() == null) {
+            return;
+        }
+        attendanceService.resettleAfterCommit(overtime.getUserId(),
+                overtime.getOvertimeDate(), overtime.getOvertimeDate());
     }
 
     private void patch(Long id, int status) {

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.common.annotation.DataScope;
 import com.kellen.oa_system.common.util.ExcelExportUtil;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
 import com.kellen.oa_system.hr.common.support.HrRoles;
@@ -44,6 +45,7 @@ import com.kellen.oa_system.system.entity.User;
 import com.kellen.oa_system.system.mapper.DepartmentMapper;
 import com.kellen.oa_system.hr.position.mapper.PositionMapper;
 import com.kellen.oa_system.system.mapper.UserMapper;
+import com.kellen.oa_system.system.service.support.DataScopeSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -113,6 +115,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     private final DepartmentMapper departmentMapper;
     private final PositionMapper positionMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
+    private final DataScopeSupport dataScopeSupport;
 
     // ==================================================================
     // 我的
@@ -504,11 +507,13 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     // ==================================================================
 
     @Override
+    @DataScope
     public PageResult<PerfSheetVO> pageSheets(PerfSheetPageQuery query) {
         return pageByWrapper(query, false);
     }
 
     @Override
+    @DataScope
     public PageResult<PerfSheetVO> pageTeam(PerfSheetPageQuery query) {
         return pageByWrapper(query, true);
     }
@@ -746,6 +751,12 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     }
 
     private Set<Long> visibleUserIds() {
+        // 快照为空 = 调用方漏标 @DataScope。此处直接失败而不是返回"全部用户"：
+        // 后者会让 wrapper.in(userId, 全部用户) 等价于不过滤，形成静默越权（BE-OPT-02 根因）。
+        if (dataScopeSupport.currentSnapshot() == null) {
+            throw new IllegalStateException(
+                    "调用方未标 @DataScope，数据权限无法判定：" + getClass().getSimpleName() + "#visibleUserIds");
+        }
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         hrDataScopeSupport.applyToUser(wrapper);
         return userMapper.selectList(wrapper.select(User::getId)).stream()

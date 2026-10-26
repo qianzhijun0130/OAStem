@@ -6,8 +6,14 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
+import com.kellen.oa_system.common.annotation.DataScope;
+import org.springframework.beans.factory.annotation.Value;
 import com.kellen.oa_system.hr.attendance.entity.AttendanceMonth;
+import com.kellen.oa_system.hr.attendance.entity.ShiftSchedule;
 import com.kellen.oa_system.hr.attendance.mapper.AttendanceMonthMapper;
+import com.kellen.oa_system.hr.attendance.mapper.ShiftScheduleMapper;
+import com.kellen.oa_system.hr.employee.entity.EmployeeChange;
+import com.kellen.oa_system.hr.employee.mapper.EmployeeChangeMapper;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
 import com.kellen.oa_system.hr.performance.service.PerfScoreService;
 import com.kellen.oa_system.hr.salary.dto.SalaryAdjustRequest;
@@ -50,6 +56,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -85,6 +92,12 @@ public class SalaryServiceImpl implements SalaryService {
 
     private static final int MONTH_LOCKED_STATUS = 2;
 
+    /** 任职状态：已离职 */
+    private static final int EMPLOYMENT_RESIGNED = 5;
+
+    /** 员工异动类型：离职 */
+    private static final int CHANGE_TYPE_RESIGN = 5;
+
     private static final Map<Integer, String> STATUS_LABEL = Map.of(
             STATUS_DRAFT, "草稿",
             STATUS_REVIEWED, "已复核",
@@ -108,6 +121,19 @@ public class SalaryServiceImpl implements SalaryService {
     private final ObjectMapper objectMapper;
     /** 绩效系数来源：只读归档结果，取不到按 1.0 */
     private final PerfScoreService perfScoreService;
+    private final EmployeeChangeMapper changeMapper;
+    private final ShiftScheduleMapper scheduleMapper;
+
+    /** 入职/离职当月是否按在职天数折算标准工资（BIZ-OPT-04 第 1 项）。关闭即恢复「发整月」。 */
+    @Value("${hr.salary.proration.enabled:true}")
+    private boolean prorationEnabled;
+
+    /**
+     * 个税累计减除费用的月数口径（BIZ-OPT-04 第 2 项）。
+     * {@code tenure}=本年度在本单位的任职月数（正确）；{@code calendar}=自然月序号（旧行为，仅供回滚）。
+     */
+    @Value("${hr.salary.tax.month-source:tenure}")
+    private String taxMonthSource;
 
     // ==================================================================
     // 薪资项
@@ -322,7 +348,7 @@ public class SalaryServiceImpl implements SalaryService {
         int year = ym.getYear();
         int monthNo = ym.getMonthValue();
 
-        List<User> users = payableUsers(deptId);
+        List<User> users = payableUsers(deptId, ym.atDay(1), end);
         if (users.isEmpty()) {
             throw new BizException(ErrorCode.HR_SALARY_NO_DATA);
         }
@@ -342,6 +368,17 @@ public class SalaryServiceImpl implements SalaryService {
         Map<Long, AttendanceMonth> attendances = attendanceMonthMapper.selectList(
                         new LambdaQueryWrapper<AttendanceMonth>().eq(AttendanceMonth::getMonth, text))
                 .stream().collect(Collectors.toMap(AttendanceMonth::getUserId, a -> a, (a, b) -> a));
+        // 没有月结记录 = 当月从未跑过日结。此前这种员工被静默按全勤发放，
+        // 一次漏跑月结就等于全公司多发一个月（BIZ-OPT-04 第 3 项）。
+        List<String> noAttendance = users.stream()
+                .filter(u -> !attendances.containsKey(u.getId()))
+                .map(User::getRealName).toList();
+        if (!noAttendance.isEmpty()) {
+            throw new BizException(ErrorCode.HR_SALARY_ATTENDANCE_UNLOCKED,
+                    "以下员工缺少 " + text + " 考勤汇总，请先执行日结与月结后再核算："
+                            + String.join("、", noAttendance));
+        }
+
         List<String> unlocked = users.stream()
                 .filter(u -> attendances.containsKey(u.getId()))
                 .filter(u -> !Objects.equals(attendances.get(u.getId()).getStatus(), MONTH_LOCKED_STATUS))
@@ -367,7 +404,7 @@ public class SalaryServiceImpl implements SalaryService {
             }
             SalaryRecord record = existing == null ? new SalaryRecord() : existing;
             fillRecord(record, user, profile, attendances.get(user.getId()), text, year, monthNo,
-                    cumulative.getOrDefault(user.getId(), zeroCumulative()));
+                    ym.atDay(1), end, cumulative.getOrDefault(user.getId(), zeroCumulative()));
             if (record.getId() == null) {
                 recordMapper.insert(record);
             } else {
@@ -388,6 +425,7 @@ public class SalaryServiceImpl implements SalaryService {
      */
     private void fillRecord(SalaryRecord record, User user, SalaryProfile profile,
                             AttendanceMonth attendance, String month, int year, int monthNo,
+                            LocalDate monthStart, LocalDate monthEnd,
                             BigDecimal[] cumulative) {
         SocialPolicy policy = requirePolicy(profile.getCity(), year);
 
@@ -403,6 +441,12 @@ public class SalaryServiceImpl implements SalaryService {
                 .multiply(Objects.requireNonNullElse(perfCoefficient, BigDecimal.ONE)));
         BigDecimal allow = SalaryCalculator.scale(profile.getAllowance());
         BigDecimal standard = base.add(post).add(perf).add(allow);
+
+        // 入职/离职当月按实际在职天数折算标准工资（BIZ-OPT-04 第 1 项）。
+        // 只折算「标准工资」这一项：社保按整月缴纳、考勤扣款仍按未折算的日工资口径，
+        // 否则入离职当天的缺勤扣款会跟着变小，反而制造新的口径错误。
+        BigDecimal prorationFactor = prorationFactor(user, monthStart, monthEnd);
+        BigDecimal proratedStandard = SalaryCalculator.scale(standard.multiply(prorationFactor));
 
         Map<String, BigDecimal> leaveDays = readJson(attendance == null ? null : attendance.getLeaveDaysJson());
         Map<String, BigDecimal> overtime = readJson(attendance == null ? null : attendance.getOvertimeJson());
@@ -423,7 +467,7 @@ public class SalaryServiceImpl implements SalaryService {
         BigDecimal otherDeduct = record.getId() == null ? BigDecimal.ZERO
                 : Objects.requireNonNullElse(record.getOtherDeduct(), BigDecimal.ZERO);
 
-        BigDecimal gross = SalaryCalculator.scale(standard.add(overtimePay).add(otherIncome));
+        BigDecimal gross = SalaryCalculator.scale(proratedStandard.add(overtimePay).add(otherIncome));
 
         // 社保基数：优先档案指定，否则用「计入社保的应发项」（加班费不计入）
         BigDecimal socialBaseRaw = profile.getSocialBase() != null ? profile.getSocialBase() : standard;
@@ -453,8 +497,11 @@ public class SalaryServiceImpl implements SalaryService {
         BigDecimal cumSpecial = cumulative[CUM_SPECIAL].add(socialPersonal).add(fundPersonal);
         BigDecimal cumExtra = cumulative[CUM_EXTRA].add(specialDeduct);
         BigDecimal cumTaxPaid = cumulative[CUM_TAX];
+        // 累计减除费用按「本年度在本单位的任职月数」而不是自然月序号：
+        // 7 月入职者在 10 月只能减 4 个月，按自然月会多减 6 个月、少扣个税（BIZ-OPT-04 第 2 项）
+        int taxMonths = taxMonthCount(user, year, monthNo);
         BigDecimal taxable = SalaryCalculator.scale(cumIncome
-                .subtract(SalaryCalculator.MONTHLY_TAX_FREE.multiply(BigDecimal.valueOf(monthNo)))
+                .subtract(SalaryCalculator.MONTHLY_TAX_FREE.multiply(BigDecimal.valueOf(taxMonths)))
                 .subtract(cumSpecial)
                 .subtract(cumExtra));
         BigDecimal tax = SalaryCalculator.scale(SalaryCalculator.cumulativeTax(taxable).subtract(cumTaxPaid));
@@ -489,7 +536,7 @@ public class SalaryServiceImpl implements SalaryService {
         record.setSocialBase(socialBase);
         record.setCumulativeTaxable(taxable);
         record.setStatus(STATUS_DRAFT);
-        record.setRemark(perfNote);
+        record.setRemark(buildRemark(perfNote, prorationFactor, standard, proratedStandard));
         record.setCalcTime(LocalDateTime.now());
     }
 
@@ -530,6 +577,7 @@ public class SalaryServiceImpl implements SalaryService {
     }
 
     @Override
+    @DataScope
     public PageResult<SalaryRecordVO> pageRecords(SalaryPageQuery query) {
         int no = query.getPageNo() == null || query.getPageNo() < 1 ? 1 : query.getPageNo();
         int size = query.getPageSize() == null || query.getPageSize() < 1 ? 10 : query.getPageSize();
@@ -546,14 +594,12 @@ public class SalaryServiceImpl implements SalaryService {
         }
         Long viewer = SecurityContextUtil.getCurrentUserId();
         if (!hrDataScopeSupport.isUnrestricted()) {
-            List<Long> visible = userMapper.selectList(new LambdaQueryWrapper<User>()
-                            .select(User::getId).eq(User::getIsDeleted, 0))
-                    .stream().map(User::getId).toList();
-            // 数据范围在用户层判定：薪资表只存了核算时的部门快照，直接按快照过滤会漏掉后来调部门的
-            LambdaQueryWrapper<User> scoped = new LambdaQueryWrapper<>();
+            // 数据范围在用户层判定：薪资表只存了核算时的部门快照，直接按快照过滤会漏掉后来调部门的。
+            // 注意：本方法必须带 @DataScope，否则 isUnrestricted() 恒为 true、整块被跳过 —— 这正是
+            // BE-OPT-02 修复的越权缺口（任何持 hr:salary:calc 的账号都能看到全公司工资条）。
+            LambdaQueryWrapper<User> scoped = new LambdaQueryWrapper<User>().select(User::getId);
             hrDataScopeSupport.applyToUser(scoped);
-            List<Long> allowed = scoped.isEmptyOfWhere() ? visible
-                    : userMapper.selectList(scoped.select(User::getId)).stream().map(User::getId).toList();
+            List<Long> allowed = userMapper.selectList(scoped).stream().map(User::getId).toList();
             if (allowed.isEmpty()) {
                 return PageResult.of(List.of(), 0L, (long) no, (long) size);
             }
@@ -775,11 +821,17 @@ public class SalaryServiceImpl implements SalaryService {
         return result;
     }
 
-    /** 参与核算的人：在职 + 未删除，按数据范围收窄 */
-    private List<User> payableUsers(Long deptId) {
+    /**
+     * 参与核算的人：在职（2/3/4）+ 本核算月内离职（5），按数据范围收窄。
+     *
+     * <p>为什么必须带上「本月离职」：只取在职会让离职当月的工资直接不发，
+     * 而员工实际干到了离职日，属少发（BIZ-OPT-04 第 6 项）。
+     * 离职日期取「离职」异动的生效日；没有异动记录时不纳入，避免给早已离职的人重复发薪。</p>
+     */
+    private List<User> payableUsers(Long deptId, LocalDate start, LocalDate end) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
                 .eq(User::getIsDeleted, 0)
-                .in(User::getEmploymentStatus, List.of(2, 3, 4));
+                .in(User::getEmploymentStatus, List.of(2, 3, 4, EMPLOYMENT_RESIGNED));
         if (deptId != null) {
             List<Long> deptIds = new ArrayList<>();
             deptIds.add(deptId);
@@ -788,7 +840,122 @@ public class SalaryServiceImpl implements SalaryService {
         } else {
             hrDataScopeSupport.applyToUser(wrapper);
         }
-        return userMapper.selectList(wrapper);
+        return userMapper.selectList(wrapper).stream()
+                .filter(u -> {
+                    if (!Objects.equals(u.getEmploymentStatus(), EMPLOYMENT_RESIGNED)) {
+                        return true;
+                    }
+                    LocalDate exit = resolveExitDate(u.getId(), end);
+                    return exit != null && !exit.isBefore(start) && !exit.isAfter(end);
+                })
+                .toList();
+    }
+
+    /** 离职生效日：该员工最近一条「离职」异动的生效日期；无记录返回 null */
+    private LocalDate resolveExitDate(Long userId, LocalDate at) {
+        EmployeeChange change = changeMapper.selectOne(new LambdaQueryWrapper<EmployeeChange>()
+                .eq(EmployeeChange::getUserId, userId)
+                .eq(EmployeeChange::getChangeType, CHANGE_TYPE_RESIGN)
+                .le(EmployeeChange::getEffectiveDate, at)
+                .orderByDesc(EmployeeChange::getEffectiveDate)
+                .orderByDesc(EmployeeChange::getId)
+                .last("LIMIT 1"));
+        return change == null ? null : change.getEffectiveDate();
+    }
+
+    /**
+     * 在职天数折算系数（0~1）。
+     *
+     * <p>口径：入职当月按「入职日（含）至月末」、离职当月按「月初至离职日（含）」的实际应出勤天数
+     * 除以当月应出勤天数。应出勤天数取排班表中该员工有班次的天数；没有排班时回退为当月工作日（周一至周五）。
+     * 两者都不在当月则返回 1（不折算）。</p>
+     */
+    private BigDecimal prorationFactor(User user, LocalDate start, LocalDate end) {
+        if (!prorationEnabled) {
+            return BigDecimal.ONE;
+        }
+        LocalDate entry = user.getEntryDate();
+        LocalDate exit = resolveExitDate(user.getId(), end);
+        boolean entryIn = entry != null && !entry.isBefore(start) && !entry.isAfter(end);
+        boolean exitIn = exit != null && !exit.isBefore(start) && !exit.isAfter(end);
+        if (!entryIn && !exitIn) {
+            return BigDecimal.ONE;
+        }
+        LocalDate from = entryIn ? entry : start;
+        LocalDate to = exitIn ? exit : end;
+        if (to.isBefore(from)) {
+            return BigDecimal.ZERO;
+        }
+        int should = workDays(user.getId(), start, end);
+        int actual = workDays(user.getId(), from, to);
+        if (should <= 0) {
+            should = weekdaysBetween(start, end);
+            actual = weekdaysBetween(from, to);
+        }
+        if (should <= 0) {
+            return BigDecimal.ONE;
+        }
+        BigDecimal factor = BigDecimal.valueOf(Math.min(actual, should))
+                .divide(BigDecimal.valueOf(should), 4, RoundingMode.HALF_UP);
+        return factor.min(BigDecimal.ONE).max(BigDecimal.ZERO);
+    }
+
+    /** 排班表里该员工区间内「有班次」的天数（休息日 shift_id 为空，不构成应出勤） */
+    private int workDays(Long userId, LocalDate from, LocalDate to) {
+        if (from == null || to == null || to.isBefore(from)) {
+            return 0;
+        }
+        return scheduleMapper.selectList(new LambdaQueryWrapper<ShiftSchedule>()
+                        .eq(ShiftSchedule::getUserId, userId)
+                        .between(ShiftSchedule::getScheduleDate, from, to)
+                        .isNotNull(ShiftSchedule::getShiftId)
+                        .select(ShiftSchedule::getId))
+                .size();
+    }
+
+    /** 无排班时的回退口径：周一至周五 */
+    private int weekdaysBetween(LocalDate from, LocalDate to) {
+        int count = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 个税累计减除费用对应的月数。
+     *
+     * <p>{@code tenure}（默认）：本年度在本单位的任职月数，含入职当月；
+     * {@code calendar}：自然月序号（旧行为，仅用于回滚对比）。</p>
+     */
+    private int taxMonthCount(User user, int year, int monthNo) {
+        if (!"tenure".equalsIgnoreCase(taxMonthSource)) {
+            return monthNo;
+        }
+        LocalDate entry = user.getEntryDate();
+        if (entry == null) {
+            return monthNo;
+        }
+        if (entry.getYear() < year) {
+            return monthNo;
+        }
+        if (entry.getYear() > year) {
+            return 0;
+        }
+        return Math.max(0, Math.min(monthNo - entry.getMonthValue() + 1, monthNo));
+    }
+
+    /** 备注：绩效口径 + 折算说明。折算必须可追溯，否则员工看不懂为什么应发少了 */
+    private String buildRemark(String perfNote, BigDecimal factor, BigDecimal standard, BigDecimal prorated) {
+        StringBuilder sb = new StringBuilder(perfNote == null ? "" : perfNote);
+        if (factor != null && factor.compareTo(BigDecimal.ONE) != 0) {
+            sb.append("；在职天数折算系数 ").append(factor.stripTrailingZeros().toPlainString())
+                    .append("（标准工资 ").append(standard.toPlainString())
+                    .append(" → ").append(prorated.toPlainString()).append("）");
+        }
+        return sb.toString();
     }
 
     private Map<Long, SalaryProfile> latestProfiles(Set<Long> userIds, LocalDate at) {

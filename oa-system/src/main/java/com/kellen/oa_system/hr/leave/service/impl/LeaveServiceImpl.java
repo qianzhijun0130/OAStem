@@ -24,6 +24,7 @@ import com.kellen.oa_system.system.entity.Department;
 import com.kellen.oa_system.system.entity.User;
 import com.kellen.oa_system.system.mapper.DepartmentMapper;
 import com.kellen.oa_system.system.mapper.UserMapper;
+import com.kellen.oa_system.system.service.support.DataScopeSupport;
 import com.kellen.oa_system.workflow.dto.ApprovalStartRequest;
 import com.kellen.oa_system.workflow.entity.FlowDefinition;
 import com.kellen.oa_system.workflow.mapper.FlowDefinitionMapper;
@@ -96,6 +97,7 @@ public class LeaveServiceImpl implements LeaveService {
     private final UserMapper userMapper;
     private final DepartmentMapper departmentMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
+    private final DataScopeSupport dataScopeSupport;
     private final ObjectMapper objectMapper;
     private final AttendanceService attendanceService;
 
@@ -313,6 +315,7 @@ public class LeaveServiceImpl implements LeaveService {
     }
 
     @Override
+    @DataScope
     public void export(LeavePageQuery query, jakarta.servlet.http.HttpServletResponse response) {
         LambdaQueryWrapper<Leave> wrapper = buildQueryWrapper(query);
         List<LeaveVO> rows;
@@ -439,6 +442,12 @@ public class LeaveServiceImpl implements LeaveService {
 
     /** 数据范围 → 用户ID；null 表示不受限 */
     private List<Long> visibleUserIds() {
+        // 快照为空 = 调用方漏标 @DataScope。返回 null 会被上层理解为"不受限"，
+        // 造成「列表受限、导出不限」这类静默越权（BE-OPT-02 根因），故直接失败。
+        if (dataScopeSupport.currentSnapshot() == null) {
+            throw new IllegalStateException(
+                    "调用方未标 @DataScope，数据权限无法判定：" + getClass().getSimpleName() + "#visibleUserIds");
+        }
         if (hrDataScopeSupport.isUnrestricted()) {
             return null;
         }

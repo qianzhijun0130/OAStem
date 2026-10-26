@@ -1,6 +1,7 @@
 package com.kellen.oa_system.hr.leave.callback;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.leave.entity.Leave;
 import com.kellen.oa_system.hr.leave.mapper.LeaveMapper;
 import com.kellen.oa_system.hr.leave.service.LeaveQuotaService;
@@ -39,6 +40,11 @@ public class LeaveApprovalCallback implements ApprovalCallback {
 
     private final LeaveMapper leaveMapper;
     private final LeaveQuotaService quotaService;
+    /**
+     * 直接依赖 AttendanceService（而非 LeaveService）：{@code LeaveService -> AttendanceService}
+     * 已是单向依赖，方向一致，不构成循环。
+     */
+    private final AttendanceService attendanceService;
 
     @Override
     public String flowCode() {
@@ -61,6 +67,9 @@ public class LeaveApprovalCallback implements ApprovalCallback {
                     leave.getStartTime().getYear(), leave.getLeaveDays());
         }
         log.info("请假审批通过: leaveId={} days={}", leave.getId(), leave.getLeaveDays());
+        // 审批可能晚于当天 02:00 的日结，此时考勤行已被判为「缺勤」。
+        // 不重算的话月结会同时计入「旷工」与「事假」，薪资按 3 倍日工资扣款（BE-OPT-01）。
+        resettleFor(leave);
     }
 
     @Override
@@ -92,6 +101,21 @@ public class LeaveApprovalCallback implements ApprovalCallback {
                     leave.getStartTime().getYear(), leave.getLeaveDays());
         }
         log.info("请假{}: leaveId={} 额度已释放", action, leave.getId());
+        // 驳回/撤销/终止后，这段日期不再算请假，考勤应恢复为原来的判定结果
+        resettleFor(leave);
+    }
+
+    /**
+     * 让考官勤按当前已通过的假勤重新判定。
+     *
+     * <p>区间取请假单起止日；重算在审批事务提交后执行，避免把日结读写塞进审批事务。</p>
+     */
+    private void resettleFor(Leave leave) {
+        if (leave.getStartTime() == null || leave.getEndTime() == null) {
+            return;
+        }
+        attendanceService.resettleAfterCommit(leave.getUserId(),
+                leave.getStartTime().toLocalDate(), leave.getEndTime().toLocalDate());
     }
 
     private Leave findByInstance(Long instanceId) {

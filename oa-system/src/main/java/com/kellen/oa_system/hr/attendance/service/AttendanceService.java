@@ -97,4 +97,37 @@ public interface AttendanceService {
     /** 导出月度汇总：扣款依据要给财务签字，不能只留在页面上 */
     void exportMonth(String month, Long deptId, jakarta.servlet.http.HttpServletResponse response);
 
+    // ---------------- 假勤审批终态后的考勤重算（BE-OPT-01） ----------------
+
+    /**
+     * 失效某人在区间内的日结结果，等待重算（排班与考勤两侧的 settled 都置 0）。
+     *
+     * <p>为什么必须做：日结在每天 02:00 结算前一天，判定「缺勤」时只看<b>那一刻</b>已通过的假勤。
+     * 请假多为 1~2 天多级审批，常常晚于日结通过；若不失效重算，当天的考勤行会永久停在「缺勤」，
+     * 而月结又重新查询已通过假勤，导致同一天同时计入「旷工 1 天」与「事假 1 天」，
+     * 薪资按旷工 2 倍 + 事假 1 倍 = 3 倍日工资扣款。</p>
+     *
+     * @return 受影响的排班条数
+     */
+    int invalidateSettlement(Long userId, java.time.LocalDate from, java.time.LocalDate to);
+
+    /**
+     * 立即重算某人区间内的考勤（以当前已通过的假勤为准）。
+     *
+     * <p>与 {@code rebuild} 的区别：只处理这一个人、这一段日期，不影响其他人；
+     * 若区间覆盖已封账月份则直接抛错，不静默跳过——静默跳过会让错误留在工资单里。</p>
+     *
+     * @return 重算的排班条数
+     */
+    int resettle(Long userId, java.time.LocalDate from, java.time.LocalDate to);
+
+    /**
+     * 审批终态后重算，事务提交后再执行。
+     *
+     * <p>放在提交后是为了不把日结的读写塞进审批事务（会放大锁窗口、拉长审批响应）；
+     * 失败只记录 ERROR 不阻断审批——月结侧已有「请假/出差当天不计旷工」的互斥兜底，
+     * 单次重算失败不会再造成重复扣款。</p>
+     */
+    void resettleAfterCommit(Long userId, java.time.LocalDate from, java.time.LocalDate to);
+
 }
