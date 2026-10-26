@@ -238,15 +238,22 @@ public class AttendanceServiceImpl implements AttendanceService {
                         .between(Holiday::getHolidayDate, start, end))
                 .stream().map(Holiday::getHolidayDate).collect(Collectors.toSet());
 
+        // 循环前一次取出区间内已有排班，按「userId:date」建索引（BE-OPT-03）。
+        // 原实现每格一次 selectOne：500 人 × 30 天 = 15000 次纯重复读。
+        List<Long> userIds = users.stream().map(User::getId).toList();
+        Map<String, ShiftSchedule> existingMap = new HashMap<>();
+        for (ShiftSchedule sc : scheduleMapper.selectList(new LambdaQueryWrapper<ShiftSchedule>()
+                .in(ShiftSchedule::getUserId, userIds)
+                .between(ShiftSchedule::getScheduleDate, start, end))) {
+            existingMap.put(sc.getUserId() + ":" + sc.getScheduleDate(), sc);
+        }
+
         int count = 0;
         for (User user : users) {
             for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
                 boolean weekend = date.getDayOfWeek().getValue() >= 6;
                 boolean offDay = holidays.contains(date) || (weekend && !includeWeekend);
-                ShiftSchedule existing = scheduleMapper.selectOne(new LambdaQueryWrapper<ShiftSchedule>()
-                        .eq(ShiftSchedule::getUserId, user.getId())
-                        .eq(ShiftSchedule::getScheduleDate, date)
-                        .last("LIMIT 1"));
+                ShiftSchedule existing = existingMap.get(user.getId() + ":" + date);
                 if (existing != null && !overwrite) {
                     continue;
                 }
@@ -535,18 +542,32 @@ public class AttendanceServiceImpl implements AttendanceService {
         Set<Long> onLeave = approvedLeaveUserIds(date, date);
         Set<Long> onTrip = approvedTripUserIds(date, date);
 
+        // 预取班次与当天考勤（BE-OPT-03）：班次是配置数据（几十行），考勤当天每人最多一条。
+        // 原实现每条排班 1 次 selectById + 1 次 findAttendance，500 人即 1000 次单行查询。
+        Set<Long> shiftIds = schedules.stream().map(ShiftSchedule::getShiftId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, Shift> shiftMap = new HashMap<>();
+        if (!shiftIds.isEmpty()) {
+            for (Shift sh : shiftMapper.selectBatchIds(shiftIds)) {
+                shiftMap.put(sh.getId(), sh);
+            }
+        }
+        Map<Long, Attendance> attMap = new HashMap<>();
+        for (Attendance a : attendanceMapper.selectList(new LambdaQueryWrapper<Attendance>()
+                .eq(Attendance::getAttendanceDate, date))) {
+            attMap.put(a.getUserId(), a);
+        }
+        List<Long> settledIds = new ArrayList<>();
+
         int handled = 0;
         for (ShiftSchedule schedule : schedules) {
-            Shift shift = schedule.getShiftId() == null ? null : shiftMapper.selectById(schedule.getShiftId());
+            Shift shift = schedule.getShiftId() == null ? null : shiftMap.get(schedule.getShiftId());
             if (shift == null) {
                 // 休息日 / 法定节假日：不产生考勤记录，只把排班标记为已处理
-                ShiftSchedule patch = new ShiftSchedule();
-                patch.setId(schedule.getId());
-                patch.setSettled(1);
-                scheduleMapper.updateById(patch);
+                settledIds.add(schedule.getId());
                 continue;
             }
-            Attendance attendance = findAttendance(schedule.getUserId(), date);
+            Attendance attendance = attMap.get(schedule.getUserId());
             if (attendance == null) {
                 attendance = new Attendance();
                 attendance.setUserId(schedule.getUserId());
@@ -563,11 +584,14 @@ public class AttendanceServiceImpl implements AttendanceService {
                 attendance.setSettled(1);
                 attendanceMapper.updateById(attendance);
             }
-            ShiftSchedule patch = new ShiftSchedule();
-            patch.setId(schedule.getId());
-            patch.setSettled(1);
-            scheduleMapper.updateById(patch);
+            settledIds.add(schedule.getId());
             handled++;
+        }
+        // 排班 settled=1 合并成一条 UPDATE：原实现每条排班一次 updateById（500 次）
+        if (!settledIds.isEmpty()) {
+            scheduleMapper.update(null, new LambdaUpdateWrapper<ShiftSchedule>()
+                    .in(ShiftSchedule::getId, settledIds)
+                    .set(ShiftSchedule::getSettled, 1));
         }
         return handled;
     }
@@ -709,12 +733,16 @@ public class AttendanceServiceImpl implements AttendanceService {
         // 即使某次审批回调漏了重算（考勤行仍是「缺勤」），月汇总也不会出现「旷工 + 请假」双重扣款。
         Map<Long, Set<LocalDate>> leaveTripDates = collectLeaveTripDates(start, end);
 
+        // 预取本月已有汇总（BE-OPT-03）：原实现每人一次 selectOne，500 人即 500 次
+        Map<Long, AttendanceMonth> existingMap = new HashMap<>();
+        for (AttendanceMonth m : monthMapper.selectList(new LambdaQueryWrapper<AttendanceMonth>()
+                .eq(AttendanceMonth::getMonth, text))) {
+            existingMap.put(m.getUserId(), m);
+        }
+
         int count = 0;
         for (Long userId : userIds) {
-            AttendanceMonth existing = monthMapper.selectOne(new LambdaQueryWrapper<AttendanceMonth>()
-                    .eq(AttendanceMonth::getUserId, userId)
-                    .eq(AttendanceMonth::getMonth, text)
-                    .last("LIMIT 1"));
+            AttendanceMonth existing = existingMap.get(userId);
             // 已封账的月份绝不覆盖：封账的意义就是「结果不能再变」
             if (existing != null && Objects.equals(existing.getStatus(), 2)) {
                 continue;
