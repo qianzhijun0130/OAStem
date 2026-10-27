@@ -1,72 +1,62 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { FormInstance } from 'element-plus'
 import { getDeptTreeApi } from '@/api/dept'
 import { logAsyncError } from '@/utils/asyncGuard'
+import type { SalaryProfileVO, SalaryRecordVO, SocialPolicyVO } from '@/api/types'
+import { money, prorationText, statusMeta } from './display'
+import DetailDialog from './dialogs/DetailDialog.vue'
+import ProfileFormDialog from './dialogs/ProfileFormDialog.vue'
+import HistoryDialog from './dialogs/HistoryDialog.vue'
+import PolicyFormDialog from './dialogs/PolicyFormDialog.vue'
 import { useSalaryRecord } from './composables/useSalaryRecord'
 import { useSalaryProfile } from './composables/useSalaryProfile'
 import { useSocialPolicy } from './composables/useSocialPolicy'
 
 /**
- * 薪酬管理：三个标签页（月度核算 / 薪资档案 / 社保政策）。
+ * 薪酬管理（FE-OPT-06 拆分后）：三个标签页 + 四个弹窗组件。
  *
- * <p>FE-OPT-06 拆分：三块业务的状态与请求各自落在 `composables/useSalary*.ts`，
- * 本文件只做组装（同名解构，模板零改动）与本页公共的部门树、金额显示。
- * 下一步再把三个 tab 的模板与四个弹窗拆成 `tabs/` 与 `dialogs/` 子组件。</p>
+ * <p>列表状态在 `composables/useSalary*.ts`，弹窗各自持有表单/明细状态并只暴露 `open()`，
+ * 保存成功后 emit `saved` 让本页重载对应列表。本文件只做组装与打开动作的转发。</p>
  */
 
 /** 右侧当前标签页 */
 const activeTab = ref('record')
-
-/** 档案表单实例：由本页持有并注入 useSalaryProfile，模板 ref 才能绑到同一个对象 */
-const profileFormRef = ref<FormInstance>()
 
 const {
   loadRecords,
   searchRecords,
   runCalc,
   transit,
-  openDetail,
-  submitAdjust,
   recordQuery,
   records,
   recordTotal,
   recordLoading,
   calcLoading,
-  detailVisible,
-  detail,
-  adjustForm,
-  canAdjust,
 } = useSalaryRecord()
 
-const {
-  loadProfiles,
-  loadUserOptions,
-  openProfileForm,
-  submitProfile,
-  openHistory,
-  profileQuery,
-  profiles,
-  profileTotal,
-  profileLoading,
-  profileFormVisible,
-  profileForm,
-  profileRules,
-  userOptions,
-  historyVisible,
-  history,
-} = useSalaryProfile({ formRef: profileFormRef })
+const { loadProfiles, profileQuery, profiles, profileTotal, profileLoading } = useSalaryProfile()
 
-const {
-  loadPolicies,
-  openPolicyForm,
-  submitPolicy,
-  removePolicy,
-  policies,
-  policyLoading,
-  policyVisible,
-  policyForm,
-} = useSocialPolicy()
+const { loadPolicies, removePolicy, policies, policyLoading } = useSocialPolicy()
+
+/** 弹窗实例：状态都在组件内，页面只负责调用 open() */
+const detailRef = ref<InstanceType<typeof DetailDialog> | null>(null)
+const profileFormRef = ref<InstanceType<typeof ProfileFormDialog> | null>(null)
+const historyRef = ref<InstanceType<typeof HistoryDialog> | null>(null)
+const policyFormRef = ref<InstanceType<typeof PolicyFormDialog> | null>(null)
+
+function openDetail(row: SalaryRecordVO) {
+  void detailRef.value?.open(row)
+}
+/** 不传 row 为新增；传 row 为调薪 */
+function openProfileForm(row?: SalaryProfileVO) {
+  void profileFormRef.value?.open(row)
+}
+function openHistory(row: SalaryProfileVO) {
+  void historyRef.value?.open(row)
+}
+function openPolicyForm(row?: SocialPolicyVO) {
+  void policyFormRef.value?.open(row)
+}
 
 /* ==================== 部门树 ==================== */
 
@@ -89,30 +79,11 @@ async function loadDeptOptions() {
   }
 }
 
-const money = (value?: number) => (value == null ? '-' : `¥${Number(value).toFixed(2)}`)
-
-/** 折算系数：1 或空表示当月未折算，显示为「—」避免整列都是 1.0000 干扰阅读 */
-const prorationText = (value?: number) => (value == null || Number(value) >= 1 ? '—' : Number(value).toFixed(4))
-
-const statusMeta = (status: number) => {
-  if (status === 4) {
-    return { label: '已发放', type: 'success' as const }
-  }
-  if (status === 3) {
-    return { label: '已封账', type: 'warning' as const }
-  }
-  if (status === 2) {
-    return { label: '已复核', type: 'primary' as const }
-  }
-  return { label: '草稿', type: 'info' as const }
-}
-
 onMounted(async () => {
-  await Promise.all([loadDeptOptions(), loadUserOptions()])
+  await loadDeptOptions()
   await Promise.all([loadRecords(), loadProfiles(), loadPolicies()])
 })
 </script>
-
 
 <template>
   <div class="salary">
@@ -312,259 +283,23 @@ onMounted(async () => {
       </el-tabs>
     </el-card>
 
-    <!-- ============ 核算明细 ============ -->
-    <el-dialog v-model="detailVisible" title="薪资明细" width="760px">
-      <template v-if="detail">
-        <el-descriptions :column="3" border size="small">
-          <el-descriptions-item label="姓名">{{ detail.realName }}</el-descriptions-item>
-          <el-descriptions-item label="工号">{{ detail.workNumber }}</el-descriptions-item>
-          <el-descriptions-item label="月份">{{ detail.month }}</el-descriptions-item>
-          <el-descriptions-item label="应发">{{ money(detail.grossPay) }}</el-descriptions-item>
-          <el-descriptions-item label="实发">
-            <b class="salary__net">{{ money(detail.netPay) }}</b>
-          </el-descriptions-item>
-          <el-descriptions-item label="社保基数">{{ money(detail.socialBase) }}</el-descriptions-item>
-          <el-descriptions-item label="累计应纳税所得额">{{ money(detail.cumulativeTaxable) }}</el-descriptions-item>
-          <el-descriptions-item label="单位成本">
-            {{ money((detail.socialCompany || 0) + (detail.fundCompany || 0)) }}
-          </el-descriptions-item>
-          <el-descriptions-item label="状态">{{ detail.statusLabel }}</el-descriptions-item>
-        </el-descriptions>
+    <!-- 弹窗：各自持有状态，open(row) 打开，saved 后本页重载对应列表 -->
+    <DetailDialog ref="detailRef" @saved="loadRecords" />
+    <ProfileFormDialog ref="profileFormRef" @saved="loadProfiles" />
+    <HistoryDialog ref="historyRef" />
+    <PolicyFormDialog ref="policyFormRef" @saved="loadPolicies" />
 
-        <el-table :data="detail.items" border size="small" class="salary__items">
-          <el-table-column prop="itemName" label="项目" min-width="140" />
-          <el-table-column label="类型" width="90">
-            <template #default="{ row }">
-              <el-tag :type="row.itemType === 1 ? 'success' : 'danger'" effect="plain" size="small">
-                {{ row.itemType === 1 ? '收入' : '扣款' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="金额" width="130" align="right">
-            <template #default="{ row }">{{ money(row.amount) }}</template>
-          </el-table-column>
-        </el-table>
 
-        <el-divider content-position="left">手工调整</el-divider>
-        <el-alert
-          v-if="!canAdjust"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="已封账/已发放，不能再调整"
-        />
-        <el-form v-else :inline="true" label-width="90px">
-          <el-form-item label="其他收入">
-            <el-input-number v-model="adjustForm.otherIncome" :min="0" :precision="2" :step="100" style="width: 150px" />
-          </el-form-item>
-          <el-form-item label="其他扣款">
-            <el-input-number v-model="adjustForm.otherDeduct" :min="0" :precision="2" :step="100" style="width: 150px" />
-          </el-form-item>
-          <el-form-item label="调整原因">
-            <el-input v-model="adjustForm.remark" placeholder="必填，会写入调整留痕" style="width: 260px" />
-          </el-form-item>
-        </el-form>
-      </template>
-      <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="canAdjust" type="primary" @click="submitAdjust">保存调整</el-button>
-      </template>
-    </el-dialog>
 
-    <!-- ============ 档案表单 ============ -->
-    <el-dialog v-model="profileFormVisible" title="薪资档案 / 调薪" width="640px">
-      <el-alert
-        class="salary__tip"
-        type="info"
-        :closable="false"
-        show-icon
-        title="调薪不是覆盖原记录，而是新增一段更晚生效的档案——历史月份必须能算回原值。"
-      />
-      <el-form ref="profileFormRef" :model="profileForm" :rules="profileRules" label-width="110px">
-        <el-form-item label="员工" prop="userId">
-          <el-select v-model="profileForm.userId" filterable placeholder="选择员工" style="width: 100%">
-            <el-option v-for="u in userOptions" :key="u.value" :label="u.label" :value="u.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="生效日期" prop="effectiveDate">
-          <el-date-picker v-model="profileForm.effectiveDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-        </el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="基本工资">
-              <el-input-number v-model="profileForm.baseSalary" :min="0" :precision="2" :step="500" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="岗位工资">
-              <el-input-number v-model="profileForm.postSalary" :min="0" :precision="2" :step="500" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="绩效基数">
-              <el-input-number v-model="profileForm.perfSalary" :min="0" :precision="2" :step="500" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="固定津贴">
-              <el-input-number v-model="profileForm.allowance" :min="0" :precision="2" :step="100" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="社保基数">
-              <el-input-number v-model="profileForm.socialBase" :min="0" :precision="2" :step="100" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="公积金基数">
-              <el-input-number v-model="profileForm.fundBase" :min="0" :precision="2" :step="100" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="参保城市">
-              <el-input v-model="profileForm.city" placeholder="默认" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="专项附加扣除">
-              <el-input-number v-model="profileForm.specialDeduct" :min="0" :precision="2" :step="500" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="调薪原因">
-          <el-input v-model="profileForm.changeReason" placeholder="如：年度调薪 / 晋升" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="profileFormVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitProfile">保存</el-button>
-      </template>
-    </el-dialog>
 
-    <!-- ============ 档案历史 ============ -->
-    <el-dialog v-model="historyVisible" title="薪资档案历史" width="760px">
-      <el-table :data="history" border size="small">
-        <el-table-column prop="effectiveDate" label="生效日期" width="120" />
-        <el-table-column label="基本" width="100" align="right">
-          <template #default="{ row }">{{ money(row.baseSalary) }}</template>
-        </el-table-column>
-        <el-table-column label="岗位" width="100" align="right">
-          <template #default="{ row }">{{ money(row.postSalary) }}</template>
-        </el-table-column>
-        <el-table-column label="绩效" width="100" align="right">
-          <template #default="{ row }">{{ money(row.perfSalary) }}</template>
-        </el-table-column>
-        <el-table-column label="津贴" width="100" align="right">
-          <template #default="{ row }">{{ money(row.allowance) }}</template>
-        </el-table-column>
-        <el-table-column label="月标准" width="115" align="right">
-          <template #default="{ row }"><b>{{ money(row.standardSalary) }}</b></template>
-        </el-table-column>
-        <el-table-column prop="changeReason" label="原因" min-width="150" show-overflow-tooltip />
-      </el-table>
-    </el-dialog>
 
-    <!-- ============ 社保政策表单 ============ -->
-    <el-dialog v-model="policyVisible" title="社保公积金政策" width="720px">
-      <el-form :model="policyForm" label-width="110px">
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="城市">
-              <el-input v-model="policyForm.city" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="年度">
-              <el-input-number v-model="policyForm.policyYear" :min="2000" :max="2100" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="社保基数下限">
-              <el-input-number v-model="policyForm.baseMin" :min="0" :precision="2" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="社保基数上限">
-              <el-input-number v-model="policyForm.baseMax" :min="0" :precision="2" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="公积金下限">
-              <el-input-number v-model="policyForm.fundBaseMin" :min="0" :precision="2" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="公积金上限">
-              <el-input-number v-model="policyForm.fundBaseMax" :min="0" :precision="2" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-divider content-position="left">缴费比例（0.08 = 8%）</el-divider>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="养老个人">
-              <el-input-number v-model="policyForm.pensionPersonal" :min="0" :max="1" :step="0.005" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="养老单位">
-              <el-input-number v-model="policyForm.pensionCompany" :min="0" :max="1" :step="0.005" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="医疗个人">
-              <el-input-number v-model="policyForm.medicalPersonal" :min="0" :max="1" :step="0.005" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="医疗单位">
-              <el-input-number v-model="policyForm.medicalCompany" :min="0" :max="1" :step="0.005" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="失业个人">
-              <el-input-number v-model="policyForm.unemploymentPersonal" :min="0" :max="1" :step="0.005" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="失业单位">
-              <el-input-number v-model="policyForm.unemploymentCompany" :min="0" :max="1" :step="0.005" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="工伤单位">
-              <el-input-number v-model="policyForm.injuryCompany" :min="0" :max="1" :step="0.001" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="生育单位">
-              <el-input-number v-model="policyForm.maternityCompany" :min="0" :max="1" :step="0.001" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="公积金个人">
-              <el-input-number v-model="policyForm.fundPersonal" :min="0" :max="1" :step="0.01" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="公积金单位">
-              <el-input-number v-model="policyForm.fundCompany" :min="0" :max="1" :step="0.01" :precision="4" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="备注">
-          <el-input v-model="policyForm.remark" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="policyVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitPolicy">保存</el-button>
-      </template>
-    </el-dialog>
+
+
+
   </div>
 </template>
 
-<style scoped>
+<style>
 .salary__tip {
   margin-bottom: 12px;
 }

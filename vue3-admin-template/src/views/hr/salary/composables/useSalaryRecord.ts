@@ -1,9 +1,7 @@
-import { computed, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  adjustSalaryApi,
   calcSalaryApi,
-  getSalaryRecordDetailApi,
   getSalaryRecordPageApi,
   lockSalaryApi,
   paySalaryApi,
@@ -11,7 +9,6 @@ import {
 } from '@/api/hr'
 import { logAsyncError } from '@/utils/asyncGuard'
 import type {
-  SalaryPayslipVO,
   SalaryRecordVO,
 } from '@/api/types'
 
@@ -114,64 +111,15 @@ async function transit(action: 'review' | 'lock' | 'pay') {
   }
 }
 
-/* ---------- 明细 / 手工调整 ---------- */
-
-const detailVisible = ref(false)
-const detail = ref<SalaryPayslipVO | null>(null)
-const adjustForm = reactive({ otherIncome: 0, otherDeduct: 0, remark: '' })
-
-async function openDetail(row: SalaryRecordVO) {
-  try {
-    const data = await getSalaryRecordDetailApi(row.id)
-    detail.value = data
-    adjustForm.otherIncome = Number(data.otherIncome || 0)
-    adjustForm.otherDeduct = Number(data.otherDeduct || 0)
-    adjustForm.remark = ''
-    detailVisible.value = true
-  } catch (error) {
-    logAsyncError('loadSalaryDetail', error)
-  }
-}
-
-const canAdjust = computed(() => (detail.value?.status ?? 0) < 3)
-
-async function submitAdjust() {
-  if (!detail.value) {
-    return
-  }
-  if (!adjustForm.remark.trim()) {
-    ElMessage.warning('手工调整必须填写原因（审计要求）')
-    return
-  }
-  try {
-    await adjustSalaryApi(detail.value.id, {
-      otherIncome: adjustForm.otherIncome,
-      otherDeduct: adjustForm.otherDeduct,
-      remark: adjustForm.remark.trim(),
-    })
-    ElMessage.success('已调整，应发/个税/实发已同步重算')
-    detailVisible.value = false
-    await loadRecords()
-  } catch (error) {
-    logAsyncError('adjustSalary', error)
-  }
-}
-
   return {
     loadRecords,
     searchRecords,
     runCalc,
     transit,
-    openDetail,
-    submitAdjust,
     recordQuery,
     records,
     recordTotal,
     recordLoading,
     calcLoading,
-    detailVisible,
-    detail,
-    adjustForm,
-    canAdjust,
   }
 }
