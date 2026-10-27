@@ -1,429 +1,72 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import {
-  adjustSalaryApi,
-  calcSalaryApi,
-  deleteSocialPolicyApi,
-  getSalaryProfileHistoryApi,
-  getSalaryProfilePageApi,
-  getSalaryRecordDetailApi,
-  getSalaryRecordPageApi,
-  listSocialPoliciesApi,
-  lockSalaryApi,
-  paySalaryApi,
-  reviewSalaryApi,
-  saveSalaryProfileApi,
-  saveSocialPolicyApi,
-} from '@/api/hr'
+import { onMounted, ref } from 'vue'
+import type { FormInstance } from 'element-plus'
 import { getDeptTreeApi } from '@/api/dept'
-import { getUserPageApi } from '@/api/user'
 import { logAsyncError } from '@/utils/asyncGuard'
-import type {
-  SalaryPayslipVO,
-  SalaryProfileVO,
-  SalaryRecordVO,
-  SocialPolicyVO,
-} from '@/api/types'
-
-/** 当前月份 yyyy-MM：核算默认就是「上个月」，因为当月还没过完 */
-function lastMonth() {
-  const d = new Date()
-  d.setMonth(d.getMonth() - 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
-function currentMonth() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
-const activeTab = ref('record')
-
-/* ==================== 月度核算 ==================== */
-
-const recordQuery = reactive({
-  month: lastMonth(),
-  deptId: undefined as number | undefined,
-  status: undefined as number | undefined,
-  keyword: '',
-  pageNo: 1,
-  pageSize: 10,
-})
-const records = ref<SalaryRecordVO[]>([])
-const recordTotal = ref(0)
-const recordLoading = ref(false)
-const calcLoading = ref(false)
-
-async function loadRecords() {
-  recordLoading.value = true
-  try {
-    const page = await getSalaryRecordPageApi({ ...recordQuery })
-    records.value = page.records || []
-    recordTotal.value = Number(page.total || 0)
-  } catch (error) {
-    logAsyncError('loadSalaryRecords', error)
-  } finally {
-    recordLoading.value = false
-  }
-}
-
-function searchRecords() {
-  recordQuery.pageNo = 1
-  loadRecords()
-}
+import { useSalaryRecord } from './composables/useSalaryRecord'
+import { useSalaryProfile } from './composables/useSalaryProfile'
+import { useSocialPolicy } from './composables/useSocialPolicy'
 
 /**
- * 一键核算。
+ * 薪酬管理：三个标签页（月度核算 / 薪资档案 / 社保政策）。
  *
- * <p>不静默执行：它会覆盖该月所有「草稿」记录，先让用户确认月份与范围，
- * 避免手滑点了把别的事业部的草稿冲掉。</p>
+ * <p>FE-OPT-06 拆分：三块业务的状态与请求各自落在 `composables/useSalary*.ts`，
+ * 本文件只做组装（同名解构，模板零改动）与本页公共的部门树、金额显示。
+ * 下一步再把三个 tab 的模板与四个弹窗拆成 `tabs/` 与 `dialogs/` 子组件。</p>
  */
-async function runCalc() {
-  const scope = recordQuery.deptId ? '所选部门（含下级）' : '全部可见范围'
-  try {
-    await ElMessageBox.confirm(
-      `将按「薪资档案 + 已封账的考勤月结」重算 ${recordQuery.month} 的薪资（${scope}）。已复核及之后的记录不会被覆盖。`,
-      '核算薪资',
-      { type: 'warning', confirmButtonText: '开始核算', cancelButtonText: '取消' },
-    )
-  } catch {
-    return
-  }
-  calcLoading.value = true
-  try {
-    const count = await calcSalaryApi({ month: recordQuery.month, deptId: recordQuery.deptId })
-    ElMessage.success(`核算完成，处理 ${count} 人`)
-    await loadRecords()
-  } catch (error) {
-    logAsyncError('calcSalary', error)
-  } finally {
-    calcLoading.value = false
-  }
-}
 
-async function transit(action: 'review' | 'lock' | 'pay') {
-  const meta = {
-    review: { title: '复核薪资', text: '复核后本人即可在「我的工资条」看到该月数据，且不能再自动重算。', ok: '确定复核' },
-    lock: { title: '薪资封账', text: '封账后该月薪资不可再调整，只能往后走发放。', ok: '确定封账' },
-    pay: { title: '标记发放', text: '确认银行已完成发放？标记后该月流程结束。', ok: '确定发放' },
-  }[action]
-  try {
-    await ElMessageBox.confirm(`${meta.text}（月份：${recordQuery.month}）`, meta.title, {
-      type: 'warning',
-      confirmButtonText: meta.ok,
-      cancelButtonText: '取消',
-    })
-  } catch {
-    return
-  }
-  try {
-    const params = { month: recordQuery.month, deptId: recordQuery.deptId }
-    const count = action === 'review'
-      ? await reviewSalaryApi(params)
-      : action === 'lock'
-        ? await lockSalaryApi(params)
-        : await paySalaryApi(params)
-    ElMessage.success(`${meta.title}完成，${count} 条`)
-    await loadRecords()
-  } catch (error) {
-    logAsyncError('salaryTransit', error)
-  }
-}
+/** 右侧当前标签页 */
+const activeTab = ref('record')
 
-/* ---------- 明细 / 手工调整 ---------- */
-
-const detailVisible = ref(false)
-const detail = ref<SalaryPayslipVO | null>(null)
-const adjustForm = reactive({ otherIncome: 0, otherDeduct: 0, remark: '' })
-
-async function openDetail(row: SalaryRecordVO) {
-  try {
-    const data = await getSalaryRecordDetailApi(row.id)
-    detail.value = data
-    adjustForm.otherIncome = Number(data.otherIncome || 0)
-    adjustForm.otherDeduct = Number(data.otherDeduct || 0)
-    adjustForm.remark = ''
-    detailVisible.value = true
-  } catch (error) {
-    logAsyncError('loadSalaryDetail', error)
-  }
-}
-
-const canAdjust = computed(() => (detail.value?.status ?? 0) < 3)
-
-async function submitAdjust() {
-  if (!detail.value) {
-    return
-  }
-  if (!adjustForm.remark.trim()) {
-    ElMessage.warning('手工调整必须填写原因（审计要求）')
-    return
-  }
-  try {
-    await adjustSalaryApi(detail.value.id, {
-      otherIncome: adjustForm.otherIncome,
-      otherDeduct: adjustForm.otherDeduct,
-      remark: adjustForm.remark.trim(),
-    })
-    ElMessage.success('已调整，应发/个税/实发已同步重算')
-    detailVisible.value = false
-    await loadRecords()
-  } catch (error) {
-    logAsyncError('adjustSalary', error)
-  }
-}
-
-/* ==================== 薪资档案 ==================== */
-
-const profileQuery = reactive({
-  keyword: '',
-  deptId: undefined as number | undefined,
-  pageNo: 1,
-  pageSize: 10,
-})
-const profiles = ref<SalaryProfileVO[]>([])
-const profileTotal = ref(0)
-const profileLoading = ref(false)
-
-async function loadProfiles() {
-  profileLoading.value = true
-  try {
-    const page = await getSalaryProfilePageApi({ ...profileQuery })
-    profiles.value = page.records || []
-    profileTotal.value = Number(page.total || 0)
-  } catch (error) {
-    logAsyncError('loadSalaryProfiles', error)
-  } finally {
-    profileLoading.value = false
-  }
-}
-
-const profileFormVisible = ref(false)
+/** 档案表单实例：由本页持有并注入 useSalaryProfile，模板 ref 才能绑到同一个对象 */
 const profileFormRef = ref<FormInstance>()
-const profileForm = reactive({
-  userId: undefined as number | undefined,
-  effectiveDate: currentMonth() + '-01',
-  baseSalary: 0,
-  postSalary: 0,
-  perfSalary: 0,
-  allowance: 0,
-  socialBase: undefined as number | undefined,
-  fundBase: undefined as number | undefined,
-  city: '默认',
-  specialDeduct: 0,
-  changeReason: '',
-})
-const profileRules: FormRules = {
-  userId: [{ required: true, message: '请选择员工', trigger: 'change' }],
-  effectiveDate: [{ required: true, message: '请选择生效日期', trigger: 'change' }],
-}
 
-const userOptions = ref<{ value: number; label: string }[]>([])
+const {
+  loadRecords,
+  searchRecords,
+  runCalc,
+  transit,
+  openDetail,
+  submitAdjust,
+  recordQuery,
+  records,
+  recordTotal,
+  recordLoading,
+  calcLoading,
+  detailVisible,
+  detail,
+  adjustForm,
+  canAdjust,
+} = useSalaryRecord()
 
-async function loadUserOptions() {
-  try {
-    // 没有专门的「用户下拉」接口，直接取一页最大 500 条：薪资档案只对在职员工维护，
-    // 500 足够覆盖中小规模企业；超出的场景应改为服务端搜索
-    const page = await getUserPageApi({ pageNo: 1, pageSize: 500, status: 1 })
-    userOptions.value = (page.records || []).map((u) => ({
-      value: u.id,
-      label: `${u.realName || u.username}（${u.workNumber || ''}）`,
-    }))
-  } catch (error) {
-    logAsyncError('loadUserOptions', error)
-  }
-}
+const {
+  loadProfiles,
+  loadUserOptions,
+  openProfileForm,
+  submitProfile,
+  openHistory,
+  profileQuery,
+  profiles,
+  profileTotal,
+  profileLoading,
+  profileFormVisible,
+  profileForm,
+  profileRules,
+  userOptions,
+  historyVisible,
+  history,
+} = useSalaryProfile({ formRef: profileFormRef })
 
-function openProfileForm(row?: SalaryProfileVO) {
-  profileFormVisible.value = true
-  if (row) {
-    profileForm.userId = row.userId
-    // 调薪默认从「下个月 1 日」生效：当月已经算过的薪资不能被追溯改掉
-    profileForm.effectiveDate = nextMonthFirstDay()
-    profileForm.baseSalary = Number(row.baseSalary || 0)
-    profileForm.postSalary = Number(row.postSalary || 0)
-    profileForm.perfSalary = Number(row.perfSalary || 0)
-    profileForm.allowance = Number(row.allowance || 0)
-    profileForm.socialBase = row.socialBase ?? undefined
-    profileForm.fundBase = row.fundBase ?? undefined
-    profileForm.city = row.city || '默认'
-    profileForm.specialDeduct = Number(row.specialDeduct || 0)
-    profileForm.changeReason = ''
-  } else {
-    profileForm.userId = undefined
-    profileForm.effectiveDate = currentMonth() + '-01'
-    profileForm.baseSalary = 0
-    profileForm.postSalary = 0
-    profileForm.perfSalary = 0
-    profileForm.allowance = 0
-    profileForm.socialBase = undefined
-    profileForm.fundBase = undefined
-    profileForm.city = '默认'
-    profileForm.specialDeduct = 0
-    profileForm.changeReason = ''
-  }
-}
-
-function nextMonthFirstDay() {
-  const d = new Date()
-  d.setMonth(d.getMonth() + 1, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-}
-
-async function submitProfile() {
-  const form = profileFormRef.value
-  if (!form) {
-    return
-  }
-  const valid = await form.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-  try {
-    await saveSalaryProfileApi({
-      userId: profileForm.userId as number,
-      effectiveDate: profileForm.effectiveDate,
-      baseSalary: profileForm.baseSalary,
-      postSalary: profileForm.postSalary,
-      perfSalary: profileForm.perfSalary,
-      allowance: profileForm.allowance,
-      socialBase: profileForm.socialBase,
-      fundBase: profileForm.fundBase,
-      city: profileForm.city,
-      specialDeduct: profileForm.specialDeduct,
-      changeReason: profileForm.changeReason,
-    })
-    ElMessage.success('已保存（新增一段档案，历史月份不受影响）')
-    profileFormVisible.value = false
-    await loadProfiles()
-  } catch (error) {
-    logAsyncError('saveSalaryProfile', error)
-  }
-}
-
-/* ---------- 档案历史 ---------- */
-
-const historyVisible = ref(false)
-const history = ref<SalaryProfileVO[]>([])
-
-async function openHistory(row: SalaryProfileVO) {
-  try {
-    history.value = await getSalaryProfileHistoryApi(row.userId)
-    historyVisible.value = true
-  } catch (error) {
-    logAsyncError('loadSalaryProfileHistory', error)
-  }
-}
-
-/* ==================== 社保政策 ==================== */
-
-const policies = ref<SocialPolicyVO[]>([])
-const policyLoading = ref(false)
-const policyVisible = ref(false)
-const policyForm = reactive<Partial<SocialPolicyVO>>({
-  city: '默认',
-  policyYear: new Date().getFullYear(),
-  baseMin: 0,
-  baseMax: 0,
-  fundBaseMin: 0,
-  fundBaseMax: 0,
-  pensionPersonal: 0.08,
-  pensionCompany: 0.16,
-  medicalPersonal: 0.02,
-  medicalCompany: 0.098,
-  unemploymentPersonal: 0.005,
-  unemploymentCompany: 0.005,
-  injuryCompany: 0.002,
-  maternityCompany: 0.008,
-  fundPersonal: 0.12,
-  fundCompany: 0.12,
-  remark: '',
-})
-
-async function loadPolicies() {
-  policyLoading.value = true
-  try {
-    policies.value = await listSocialPoliciesApi()
-  } catch (error) {
-    logAsyncError('loadSocialPolicies', error)
-  } finally {
-    policyLoading.value = false
-  }
-}
-
-function openPolicyForm(row?: SocialPolicyVO) {
-  policyVisible.value = true
-  Object.assign(policyForm, row || {
-    id: undefined,
-    city: '默认',
-    policyYear: new Date().getFullYear(),
-    baseMin: 0,
-    baseMax: 0,
-    fundBaseMin: 0,
-    fundBaseMax: 0,
-    pensionPersonal: 0.08,
-    pensionCompany: 0.16,
-    medicalPersonal: 0.02,
-    medicalCompany: 0.098,
-    unemploymentPersonal: 0.005,
-    unemploymentCompany: 0.005,
-    injuryCompany: 0.002,
-    maternityCompany: 0.008,
-    fundPersonal: 0.12,
-    fundCompany: 0.12,
-    remark: '',
-  })
-}
-
-async function submitPolicy() {
-  try {
-    await saveSocialPolicyApi({
-      id: policyForm.id,
-      city: policyForm.city || '默认',
-      policyYear: Number(policyForm.policyYear),
-      baseMin: Number(policyForm.baseMin || 0),
-      baseMax: Number(policyForm.baseMax || 0),
-      fundBaseMin: Number(policyForm.fundBaseMin || 0),
-      fundBaseMax: Number(policyForm.fundBaseMax || 0),
-      pensionPersonal: Number(policyForm.pensionPersonal || 0),
-      pensionCompany: Number(policyForm.pensionCompany || 0),
-      medicalPersonal: Number(policyForm.medicalPersonal || 0),
-      medicalCompany: Number(policyForm.medicalCompany || 0),
-      unemploymentPersonal: Number(policyForm.unemploymentPersonal || 0),
-      unemploymentCompany: Number(policyForm.unemploymentCompany || 0),
-      injuryCompany: Number(policyForm.injuryCompany || 0),
-      maternityCompany: Number(policyForm.maternityCompany || 0),
-      fundPersonal: Number(policyForm.fundPersonal || 0),
-      fundCompany: Number(policyForm.fundCompany || 0),
-      remark: policyForm.remark,
-    })
-    ElMessage.success('已保存')
-    policyVisible.value = false
-    await loadPolicies()
-  } catch (error) {
-    logAsyncError('saveSocialPolicy', error)
-  }
-}
-
-async function removePolicy(row: SocialPolicyVO) {
-  try {
-    await ElMessageBox.confirm(`确定删除「${row.city} / ${row.policyYear}」的社保政策吗？`, '删除政策', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-    })
-  } catch {
-    return
-  }
-  try {
-    await deleteSocialPolicyApi(row.id)
-    ElMessage.success('已删除')
-    await loadPolicies()
-  } catch (error) {
-    logAsyncError('deleteSocialPolicy', error)
-  }
-}
+const {
+  loadPolicies,
+  openPolicyForm,
+  submitPolicy,
+  removePolicy,
+  policies,
+  policyLoading,
+  policyVisible,
+  policyForm,
+} = useSocialPolicy()
 
 /* ==================== 部门树 ==================== */
 
@@ -469,6 +112,7 @@ onMounted(async () => {
   await Promise.all([loadRecords(), loadProfiles(), loadPolicies()])
 })
 </script>
+
 
 <template>
   <div class="salary">
