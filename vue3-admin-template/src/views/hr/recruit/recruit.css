@@ -1,0 +1,26 @@
+.recruit__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recruit__toolbar {
+  flex: 0 0 auto;
+}
+.recruit__pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+.recruit__over {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+.recruit__hint {
+  margin-left: 8px;
+  color: #8a94a5;
+  font-size: 12px;
+}
+.recruit__board {
+  padding: 4px 0;
+}
