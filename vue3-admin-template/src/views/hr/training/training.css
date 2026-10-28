@@ -1,0 +1,27 @@
+.training__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.training__toolbar {
+  flex: 0 0 auto;
+}
+.training__pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+.training__hint {
+  margin-left: 8px;
+  color: #8a94a5;
+  font-size: 12px;
+}
+.training__wait {
+  margin-left: 6px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+}
+.training__stat {
+  padding: 4px 0;
+}
