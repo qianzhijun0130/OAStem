@@ -85,6 +85,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final HrDataScopeSupport hrDataScopeSupport;
     private final OnlineUserRegistry onlineUserRegistry;
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<EmployeeVO> page(EmployeePageQuery query) {
@@ -95,6 +96,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         return PageResult.of(toEmployeeVOs(page.getRecords()), page.getTotal(), page.getCurrent(), page.getSize());
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public void export(HttpServletResponse response, EmployeePageQuery query) {
@@ -153,6 +155,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         return wrapper;
     }
 
+    @Transactional(readOnly = true)
     @Override
     public EmployeeDetailVO detail(Long userId) {
         User user = requireUser(userId);
@@ -445,6 +448,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         certMapper.deleteById(certId);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<ChangeVO> listChanges(Long userId) {
         assertCanView(requireUser(userId));

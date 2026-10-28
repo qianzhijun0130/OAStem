@@ -450,6 +450,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         return vars;
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResult<ApprovalTodoVO> todo(int pageNo, int pageSize) {
         pageNo = safePageNo(pageNo);
@@ -536,6 +537,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         return PageResult.of(vos, total, (long) pageNo, (long) pageSize);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResult<ApprovalRecordVO> done(int pageNo, int pageSize) {
         pageNo = safePageNo(pageNo);
@@ -608,6 +610,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         return PageResult.of(vos, total, (long) pageNo, (long) pageSize);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResult<ApprovalInstanceVO> mine(Integer status, int pageNo, int pageSize) {
         pageNo = safePageNo(pageNo);
@@ -1208,6 +1211,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         return u.getPermissions().contains(PERM_INSTANCE) || u.getRoles().contains(SUPER_ADMIN_CODE);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public ApprovalDetailVO detail(Long instanceId) {
         Long userId = SecurityContextUtil.getCurrentUserId();

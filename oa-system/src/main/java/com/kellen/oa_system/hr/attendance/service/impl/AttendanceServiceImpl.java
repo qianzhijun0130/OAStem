@@ -125,6 +125,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     // 班次
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     public List<ShiftVO> listShifts() {
         List<Shift> list = shiftMapper.selectList(new LambdaQueryWrapper<Shift>()
@@ -276,6 +277,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         return count;
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<ScheduleVO> listSchedule(Long deptId, String month) {
         YearMonth ym = parseMonth(month);
@@ -323,6 +325,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     // 打卡与查询
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     public TodayAttendanceVO today() {
         Long userId = SecurityContextUtil.getCurrentUserId();
@@ -426,6 +429,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         attendanceMapper.updateById(attendance);
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<AttendanceVO> page(AttendancePageQuery query) {
@@ -470,6 +474,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         return PageResult.of(toAttendanceVOs(page.getRecords()), page.getTotal(), page.getCurrent(), page.getSize());
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<AttendanceVO> myMonth(String month) {
         Long userId = SecurityContextUtil.getCurrentUserId();
@@ -485,6 +490,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     // 汇总与结算
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<AttendanceMonthVO> pageMonth(String month, Long deptId, Integer pageNo, Integer pageSize) {
@@ -796,6 +802,18 @@ public class AttendanceServiceImpl implements AttendanceService {
         return count;
     }
 
+    /**
+     * 整月重算：逐日重结 + 月结汇总。
+     *
+     * <p><b>事务边界说明（勿按注解误判）</b>：本方法内的 {@code settleDate(...)} 与
+     * {@code settleMonth(...)} 虽然是同类内的普通方法调用，但它们各自的事务注解属于
+     * <b>自调用</b>，Spring 代理不介入、注解<b>完全不生效</b>——
+     * 实际只有一个事务，就是本方法这一层。因此重算要么整体成功、要么整体回滚，
+     * 不存在「某天单独提交」的中间态。</p>
+     *
+     * <p>后续若要拆成多事务（例如按天分段提交以缩短锁窗口），必须改为通过注入的代理
+     * 或 {@code TransactionTemplate} 调用，否则改了注解也不会生效。</p>
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int rebuild(String month) {
@@ -1267,6 +1285,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         return stale.size();
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public void exportMonth(String month, Long deptId, HttpServletResponse response) {

@@ -246,6 +246,7 @@ public class LeaveServiceImpl implements LeaveService {
                 leave.getId(), leave.getLeaveDays(), actual, refund, remark);
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<LeaveVO> page(LeavePageQuery query) {
@@ -314,6 +315,7 @@ public class LeaveServiceImpl implements LeaveService {
         return wrapper;
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public void export(LeavePageQuery query, jakarta.servlet.http.HttpServletResponse response) {
@@ -345,6 +347,7 @@ public class LeaveServiceImpl implements LeaveService {
         ExcelExportUtil.write(response, "请假记录.xlsx", "请假记录", EXPORT_HEADERS, data);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<LeaveVO> mine(Integer leaveStatus) {
         Long userId = SecurityContextUtil.getCurrentUserId();
@@ -358,6 +361,7 @@ public class LeaveServiceImpl implements LeaveService {
         return toVOs(leaveMapper.selectList(wrapper));
     }
 
+    @Transactional(readOnly = true)
     @Override
     public LeaveVO detail(Long leaveId) {
         Leave leave = requireLeave(leaveId);

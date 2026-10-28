@@ -140,6 +140,7 @@ public class SalaryServiceImpl implements SalaryService {
     // 薪资项
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     public List<SalaryItemVO> listItems() {
         return itemMapper.selectList(new LambdaQueryWrapper<SalaryItem>()
@@ -197,6 +198,7 @@ public class SalaryServiceImpl implements SalaryService {
     // 社保政策
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     public List<SocialPolicyVO> listPolicies(Integer year) {
         LambdaQueryWrapper<SocialPolicy> wrapper = new LambdaQueryWrapper<SocialPolicy>()
@@ -330,6 +332,7 @@ public class SalaryServiceImpl implements SalaryService {
         return entity.getId();
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<SalaryProfileVO> profileHistory(Long userId) {
         return toProfileVOs(profileMapper.selectList(new LambdaQueryWrapper<SalaryProfile>()
@@ -588,6 +591,7 @@ public class SalaryServiceImpl implements SalaryService {
         target.add(item);
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<SalaryRecordVO> pageRecords(SalaryPageQuery query) {
@@ -636,6 +640,7 @@ public class SalaryServiceImpl implements SalaryService {
         return PageResult.of(vos, page.getTotal(), (long) no, (long) size);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public SalaryPayslipVO detail(Long recordId) {
         SalaryRecord record = recordMapper.selectById(recordId);
@@ -776,6 +781,7 @@ public class SalaryServiceImpl implements SalaryService {
     // 工资条（本人）
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     public List<SalaryPayslipVO> myPayslips(Integer year) {
         Long userId = SecurityContextUtil.getCurrentUserId();
@@ -790,6 +796,7 @@ public class SalaryServiceImpl implements SalaryService {
         return recordMapper.selectList(wrapper).stream().map(r -> toPayslip(r, true)).toList();
     }
 
+    @Transactional(readOnly = true)
     @Override
     public SalaryPayslipVO myPayslip(String month) {
         Long userId = SecurityContextUtil.getCurrentUserId();

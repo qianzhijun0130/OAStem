@@ -121,6 +121,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     // 我的
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     public PerfSheetDetailVO mySheet(Long cycleId) {
         Long userId = SecurityContextUtil.getCurrentUserId();
@@ -134,6 +135,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
         return toDetail(sheet, true, true);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResult<PerfSheetVO> myHistory(Integer pageNo, Integer pageSize) {
         int no = pageNo == null || pageNo < 1 ? 1 : pageNo;
@@ -487,6 +489,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
                 APPEAL_STATUS_LABEL.getOrDefault(request.getStatus(), ""));
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<PerfAppealVO> pendingAppeals(Long cycleId) {
         List<PerfSheet> sheets = sheetMapper.selectList(new LambdaQueryWrapper<PerfSheet>()
@@ -506,12 +509,14 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     // 结果视图
     // ==================================================================
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<PerfSheetVO> pageSheets(PerfSheetPageQuery query) {
         return pageByWrapper(query, false);
     }
 
+    @Transactional(readOnly = true)
     @Override
     @DataScope
     public PageResult<PerfSheetVO> pageTeam(PerfSheetPageQuery query) {
@@ -564,6 +569,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
         return PageResult.of(toSheetVOs(page.getRecords()), page.getTotal(), (long) no, (long) size);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PerfSheetDetailVO detail(Long sheetId) {
         PerfSheet sheet = requireSheet(sheetId);
@@ -580,6 +586,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
         return toDetail(sheet, true, showSelfScore);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<PerfDistributionVO> distribution(Long cycleId) {
         List<PerfSheet> sheets = sheetMapper.selectList(new LambdaQueryWrapper<PerfSheet>()
@@ -634,6 +641,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
         return vo;
     }
 
+    @Transactional(readOnly = true)
     @Override
     public void export(Long cycleId, HttpServletResponse response) {
         PerfCycle cycle = requireCycle(cycleId);
