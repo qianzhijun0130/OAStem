@@ -195,6 +195,13 @@ public enum ErrorCode {
     TRAIN_NOT_CHECKED_IN(6710, "未签到不能录入成绩"),
 
     // ---------- 系统错误 5xxx ----------
+    /**
+     * 唯一键冲突（并发重复提交 / 双击提交）。
+     *
+     * <p>与 {@link #SYSTEM_ERROR} 区分开：这是「重试无用但可解释」的冲突，
+     * 前端应提示「请勿重复提交」而不是「系统内部错误」，否则用户会继续点。</p>
+     */
+    DUPLICATE_SUBMIT(5009, "数据已存在，请勿重复提交"),
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试");
 
     private final Integer code;

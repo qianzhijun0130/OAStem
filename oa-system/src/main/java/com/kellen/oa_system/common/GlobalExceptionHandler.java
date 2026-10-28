@@ -3,6 +3,8 @@ package com.kellen.oa_system.common;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -129,11 +131,66 @@ public class GlobalExceptionHandler {
         return Result.fail(ErrorCode.NOT_FOUND);
     }
 
+    /**
+     * 唯一键 / 唯一索引冲突：并发重复提交的落点（D10）。
+     *
+     * <p>服务层普遍是「先查后插」——两个请求同时通过预检、同时 INSERT 时，
+     * 数据库唯一索引只放行一个，另一个抛 {@link DuplicateKeyException}。
+     * 若落到兜底分支就变成「系统内部错误 5000」，用户以为系统坏了、继续点，
+     * 于是重复提交越积越多。这里单独拦截，返回可解释的 5009。</p>
+     *
+     * <p>只记 warn 不打堆栈：这是客户端并发行为，不是服务端故障。</p>
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    public Result<Void> handleDuplicateKey(DuplicateKeyException e) {
+        log.warn("唯一键冲突（疑似并发重复提交）: {}", rootMessage(e));
+        return Result.fail(ErrorCode.DUPLICATE_SUBMIT);
+    }
+
+    /**
+     * 其余数据完整性冲突（非空、长度、外键等）。
+     *
+     * <p>绝大多数是「提交的数据不合规」，属于客户端问题；但如果驱动打包成
+     * `DataIntegrityViolationException` 且原因仍是唯一键冲突，仍按 5009 处理。</p>
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public Result<Void> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        String cause = rootMessage(e);
+        if (cause != null && (cause.contains("Duplicate entry") || cause.contains("uk_")
+                || cause.toLowerCase().contains("unique"))) {
+            log.warn("唯一键冲突（疑似并发重复提交）: {}", cause);
+            return Result.fail(ErrorCode.DUPLICATE_SUBMIT);
+        }
+        log.warn("数据完整性约束不满足: {}", cause);
+        return Result.fail(ErrorCode.BAD_REQUEST, "提交的数据不符合约束，请检查必填项、长度与格式");
+    }
+
     /** 兜底：未知异常一律转成系统错误，完整堆栈只进日志 */
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {
         log.error("未处理异常: {}", e.getMessage(), e);
         return Result.fail(ErrorCode.SYSTEM_ERROR);
+    }
+
+    /**
+     * 取最内层原因的消息，且**只截取到换行/长度上限**。
+     *
+     * <p>JDBC 的重复键消息会带完整 SQL 与索引名（如
+     * `Duplicate entry 'a-4-2099-1' for key 'oa_leave_policy.uk_policy_city_type_year'`），
+     * 直接进日志可以，但绝不能透给客户端——所以只用于日志与内部判定。</p>
+     */
+    private String rootMessage(Throwable e) {
+        Throwable cur = e;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        String msg = cur.getMessage();
+        if (msg == null) {
+            return null;
+        }
+        int nl = msg.indexOf('\n');
+        String head = nl > 0 ? msg.substring(0, nl) : msg;
+        return head.length() > 500 ? head.substring(0, 500) + "..." : head;
     }
 
     private String formatFieldError(FieldError fieldError) {
