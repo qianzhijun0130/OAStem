@@ -47,8 +47,9 @@ const UID = 101809
     const review = await call(`/hr/salary/review?month=${month}&deptId=2`, 'POST')
     return { profile: profile.code, calc: calc.code, calcCount: calc.data, review: review.code }
   }, [MONTH, UID])
-  ck('造数：档案 + 核算 + 复核成功',
-    seed.profile === 200 && seed.calc === 200 && seed.review === 200,
+  // 重复运行时：档案同日已存在=400、记录状态已推进过=6404，都说明前置条件已就绪，不算失败
+  ck('造数：档案 + 核算 + 复核成功（400/6404 视为已就绪）',
+    [200, 400].includes(seed.profile) && seed.calc === 200 && [200, 6404].includes(seed.review),
     JSON.stringify(seed))
 
   // ---------- 1. 菜单 ----------
@@ -56,7 +57,7 @@ const UID = 101809
   await p.waitForTimeout(1800)
   const menuText = await p.locator('.oa-sidebar__menu').innerText()
   ck('侧边栏出现「薪酬管理」', menuText.includes('薪酬管理'), menuText.replace(/\s+/g, ' ').slice(0, 80))
-  ck('侧边栏出现「我的工资条」', menuText.includes('我的工资条'), '')
+  ck('侧边栏出现「自助服务」（工资条已迁入该目录）', menuText.includes('自助服务'), '')
 
   // ---------- 2. 三个页签 ----------
   const tabs = (await p.locator('.el-tabs__item').allInnerTexts()).map(s => s.trim())
@@ -126,7 +127,7 @@ const UID = 101809
   }, [UID])
   ck('员工登录成功', !!staffToken, staffToken ? 'ok' : 'no-token')
   await p.evaluate(t => localStorage.setItem('oa_token', t), staffToken)
-  await p.goto(BASE + '/hr/my-salary', { waitUntil: 'networkidle' })
+  await p.goto(BASE + '/self/my-salary', { waitUntil: 'networkidle' })
   await p.waitForTimeout(1600)
   const bodyText = (await p.locator('body').innerText()).replace(/\s+/g, ' ')
   ck('工资条页显示月份与实发', bodyText.includes('工资条') && bodyText.includes('实发合计'), bodyText.slice(0, 100))
