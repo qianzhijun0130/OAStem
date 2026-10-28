@@ -1,0 +1,29 @@
+.hr-leave__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.hr-leave__hint {
+  color: #8a94a5;
+  font-size: 12px;
+}
+
+.hr-leave__muted {
+  color: #b8c0cc;
+}
+
+.hr-leave__danger {
+  color: var(--el-color-danger);
+}
+
+.hr-leave__pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.hr-leave__tip {
+  margin-bottom: 12px;
+}
