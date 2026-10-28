@@ -190,7 +190,16 @@ def main():
     staff = token(MAIN_USER, "tech_staff1", hours=2)
     code, body = req("GET", "/hr/salary/my?year=2026", tok=staff)
     slips = body.get("data") or []
-    ck("本人可见 1 条工资条", len(slips) == 1 and slips[0]["month"] == MONTH, f"n={len(slips)}")
+    # 该员工本年的工资条可能不止本月：其它用例（如 UI 的 hr_salary.js）也会造数。
+    # 因此不能断言「恰好 1 条」，真正的契约是「可见集合 == 已复核及以后的月份集合」，
+    # 这也顺带覆盖了「草稿不可见」——草稿月不会出现在期望集合里。
+    visible = sorted(s["month"] for s in slips)
+    expected = sorted(x for x in mysql(
+        f"SELECT month FROM oa_system.oa_salary_record WHERE user_id={MAIN_USER} "
+        f"AND month LIKE '2026-%' AND status>=2").split() if x)
+    ck("本人可见工资条 = 已复核及以后的月份", visible == expected,
+       f"visible={visible} expected={expected}")
+    ck("本人可见工资条含本月", MONTH in visible, f"months={visible}")
     ck("工资条含逐项明细", len((slips[0].get("items") or [])) >= 5 if slips else False,
        f"items={len(slips[0].get('items') or []) if slips else 0}")
 

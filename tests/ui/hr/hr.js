@@ -26,8 +26,9 @@ const R = []; const ck = (n, ok, d = '') => { R.push(ok); console.log(`${ok ? 'P
   await p.waitForTimeout(1800)
   const menuText = await p.locator('.oa-sidebar__menu').innerText()
   ck('侧边栏出现「人力资源」目录', menuText.includes('人力资源'), menuText.replace(/\s+/g, ' ').slice(0, 80))
-  ck('目录下含 4 个子菜单',
-    ['员工档案', '岗位管理', '考勤管理', '我的考勤'].every(n => menuText.includes(n)), '')
+  // 「我的考勤」已迁到「自助服务」目录（菜单 235），不再属于人力资源
+  ck('人力资源目录下含员工档案/岗位管理/考勤管理/薪酬管理',
+    ['员工档案', '岗位管理', '考勤管理', '薪酬管理'].every(n => menuText.includes(n)), '')
 
   // ---------- 岗位管理 ----------
   ck('岗位页 URL 正确', p.url().includes('/hr/position'), p.url().replace(BASE, ''))
@@ -82,7 +83,8 @@ const R = []; const ck = (n, ok, d = '') => { R.push(ok); console.log(`${ok ? 'P
   await p.screenshot({ path: require('path').join(__dirname, '..', '..', '.runtime') + '/hr_attendance_shift.png' })
 
   // ---------- 我的考勤 ----------
-  await p.goto(BASE + '/hr/my-attendance', { waitUntil: 'networkidle' })
+  // 「我的考勤」已随自助服务迁到 /self 目录（菜单 235），/hr 下已无此页
+  await p.goto(BASE + '/self/my-attendance', { waitUntil: 'networkidle' })
   await p.waitForTimeout(1600)
   const bodyText = await p.locator('body').innerText()
   ck('我的考勤展示今日卡片', bodyText.includes('上班打卡') && bodyText.includes('下班打卡'))
