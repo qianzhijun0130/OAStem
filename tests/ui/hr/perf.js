@@ -60,7 +60,7 @@ async function mkPage(b, tok){
  // ============ 2. 员工视角：我的绩效 ============
  {
   const {p,errs}=await mkPage(b,EMP)
-  await p.goto(BASE+'/hr/my-performance',{waitUntil:'networkidle'});await p.waitForTimeout(2200)
+  await p.goto(BASE+'/self/my-performance',{waitUntil:'networkidle'});await p.waitForTimeout(2200)
   ck('我的绩效页可打开', !p.url().includes('/404'), `url=${p.url()}`)
   const bodyText=(await p.locator('body').innerText().catch(()=>''))
   ck('显示考核周期选择', bodyText.includes('考核周期'), '')
@@ -77,7 +77,7 @@ async function mkPage(b, tok){
  // ============ 3. 主管视角：团队考核表 ============
  {
   const {p,errs}=await mkPage(b,LEADER)
-  await p.goto(BASE+'/hr/my-performance',{waitUntil:'networkidle'});await p.waitForTimeout(2200)
+  await p.goto(BASE+'/self/my-performance',{waitUntil:'networkidle'});await p.waitForTimeout(2200)
   ck('主管可打开我的绩效页', !p.url().includes('/404'), `url=${p.url()}`)
   const t=(await p.locator('body').innerText().catch(()=>''))
   ck('主管页面不出现方案维护入口', !t.includes('新建方案'), '')
