@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { clockApi, getMyAttendanceApi, getTodayAttendanceApi } from '@/api/hr'
 import { logAsyncError } from '@/utils/asyncGuard'
 import type { AttendanceVO, TodayAttendanceVO } from '@/api/types'
+import MissingCardList from '@/views/hr/attendance/components/MissingCardList.vue'
 
 const today = ref<TodayAttendanceVO | null>(null)
 const todayLoading = ref(false)
@@ -156,6 +157,14 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
       <el-empty v-if="!listLoading && !rows.length" description="本月暂无考勤记录（未排班不产生记录）" :image-size="70" />
+    </el-card>
+
+    <!-- 漏卡待处理：系统已识别缺卡的直接认领，不占每月 3 次主动补卡额度（BIZ-OPT-08） -->
+    <el-card shadow="never" class="my-att__list">
+      <div class="my-att__list-head">
+        <span class="my-att__title">漏卡待处理</span>
+      </div>
+      <MissingCardList mode="self" />
     </el-card>
   </div>
 </template>

@@ -1322,6 +1322,10 @@ export interface AttendanceVO {
   attendanceDate: string
   checkInTime?: string
   checkOutTime?: string
+  /** 上班打卡来源：1 网页打卡 / 2 考勤机 / 3 补卡 */
+  checkInSource?: number
+  /** 下班打卡来源：1 网页打卡 / 2 考勤机 / 3 补卡 */
+  checkOutSource?: number
   checkInLocation?: string
   checkOutLocation?: string
   workDuration?: number
@@ -1343,6 +1347,47 @@ export interface AttendancePageQuery {
   keyword?: string
   pageNo?: number
   pageSize?: number
+}
+
+/** 考勤机数据导入结果：判断成败看 imported/failed，不看接口是否报错 */
+export interface MachineImportResult {
+  /** 读取到的数据行数（不含表头、不含空行） */
+  total: number
+  /** 实际写入或更新的「人天」条数 */
+  imported: number
+  /** 与已有考勤机记录一致而跳过（重复上传同一文件时全部落这里） */
+  duplicate: number
+  /** 校验不通过的行数 */
+  failed: number
+  errors: MachineImportRow[]
+  /** 已跳过但不算失败（如该侧已有网页打卡/补卡，保留原值） */
+  warnings: MachineImportRow[]
+}
+
+export interface MachineImportRow {
+  /** Excel 行号，从 1 开始且含表头，便于直接在文件里定位 */
+  row: number
+  message: string
+}
+
+/** 漏卡待处理项 */
+export interface MissingCardVO {
+  attendanceId: number
+  userId: number
+  workNumber?: string
+  realName?: string
+  deptId?: number
+  deptName?: string
+  attendanceDate: string
+  /** 1 缺上班卡 / 2 缺下班卡 / 3 两侧都缺 */
+  cardMissing: number
+  missingLabel?: string
+  /** 缺卡方向明细：[1] / [2] / [1,2] */
+  missingDirections: number[]
+  /** 已有审批中或已通过补卡单的方向，前端据此置灰按钮 */
+  pendingDirections: number[]
+  attendanceStatus?: number
+  attendanceStatusLabel?: string
 }
 
 export interface AttendanceMonthVO {

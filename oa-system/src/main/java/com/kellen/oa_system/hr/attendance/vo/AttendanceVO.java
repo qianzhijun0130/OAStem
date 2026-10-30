@@ -30,6 +30,12 @@ public class AttendanceVO {
 
     private LocalDateTime checkOutTime;
 
+    /** 上班打卡来源：1 网页打卡 / 2 考勤机 / 3 补卡 */
+    private Integer checkInSource;
+
+    /** 下班打卡来源：1 网页打卡 / 2 考勤机 / 3 补卡 */
+    private Integer checkOutSource;
+
     private String checkInLocation;
 
     private String checkOutLocation;

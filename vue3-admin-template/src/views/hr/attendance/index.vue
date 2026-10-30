@@ -18,6 +18,8 @@ import {
 import { getDeptTreeApi } from '@/api/dept'
 import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
+import MachineImportButton from './components/MachineImportButton.vue'
+import MissingCardList from './components/MissingCardList.vue'
 import type {
   AttendanceMonthVO,
   AttendancePageQuery,
@@ -42,6 +44,22 @@ const STATUS_OPTIONS = [
 
 function statusMeta(status?: number) {
   return STATUS_OPTIONS.find((s) => s.value === status) || { label: '-', type: 'info' as const }
+}
+
+/**
+ * 打卡来源标签：1 网页打卡 / 2 考勤机 / 3 补卡。
+ *
+ * <p>必须显示——同一条「迟到 30 分」的记录，是网页打卡、考勤机、还是补卡批出来的，
+ * HR 的处理方式完全不同。此前笼统一个时间，出了争议无从判断。</p>
+ */
+const SOURCE_OPTIONS = [
+  { value: 1, label: '网页', type: 'info' as const },
+  { value: 2, label: '考勤机', type: 'success' as const },
+  { value: 3, label: '补卡', type: 'warning' as const },
+]
+
+function sourceMeta(source?: number) {
+  return SOURCE_OPTIONS.find((s) => s.value === source) || { label: '', type: 'info' as const }
 }
 
 function currentMonth(): string {
@@ -350,6 +368,7 @@ onMounted(async () => {
               <el-button type="primary" @click="detailQuery.search">查询</el-button>
               <el-button @click="detailQuery.reset">重置</el-button>
               <el-button v-permission="'hr:attendance:rebuild'" @click="rebuild">重算考勤</el-button>
+              <MachineImportButton @imported="detailQuery.refresh()" />
             </el-form-item>
           </el-form>
 
@@ -361,11 +380,27 @@ onMounted(async () => {
             <el-table-column prop="shiftName" label="班次" width="110">
               <template #default="{ row }">{{ row.shiftName || '-' }}</template>
             </el-table-column>
-            <el-table-column label="上班打卡" width="110">
-              <template #default="{ row }">{{ row.checkInTime ? row.checkInTime.slice(11, 19) : '-' }}</template>
+            <el-table-column label="上班打卡" width="150">
+              <template #default="{ row }">
+                <span v-if="row.checkInTime">
+                  {{ row.checkInTime.slice(11, 19) }}
+                  <el-tag :type="sourceMeta(row.checkInSource).type" size="small" effect="plain">
+                    {{ sourceMeta(row.checkInSource).label }}
+                  </el-tag>
+                </span>
+                <span v-else>-</span>
+              </template>
             </el-table-column>
-            <el-table-column label="下班打卡" width="110">
-              <template #default="{ row }">{{ row.checkOutTime ? row.checkOutTime.slice(11, 19) : '-' }}</template>
+            <el-table-column label="下班打卡" width="150">
+              <template #default="{ row }">
+                <span v-if="row.checkOutTime">
+                  {{ row.checkOutTime.slice(11, 19) }}
+                  <el-tag :type="sourceMeta(row.checkOutSource).type" size="small" effect="plain">
+                    {{ sourceMeta(row.checkOutSource).label }}
+                  </el-tag>
+                </span>
+                <span v-else>-</span>
+              </template>
             </el-table-column>
             <el-table-column prop="workDuration" label="工时(h)" width="90">
               <template #default="{ row }">{{ row.workDuration ?? '-' }}</template>
@@ -475,6 +510,11 @@ onMounted(async () => {
             background
             @current-change="monthQuery.handlePageChange"
           />
+        </el-tab-pane>
+
+        <!-- ============ 漏卡待处理（BIZ-OPT-08） ============ -->
+        <el-tab-pane label="漏卡待处理" name="missing" lazy>
+          <MissingCardList mode="hr" :dept-tree="deptTree" />
         </el-tab-pane>
 
         <!-- ============ 班次 ============ -->

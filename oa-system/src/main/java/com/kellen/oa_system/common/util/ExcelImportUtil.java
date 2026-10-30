@@ -42,16 +42,29 @@ public final class ExcelImportUtil {
     }
 
     /**
-     * 读取第一个工作表的全部行（含表头）。
+     * 读取第一个工作表的全部行（含表头），按默认上限 {@link #MAX_DATA_ROWS} 校验。
      *
      * @param file 上传的 Excel 文件
      * @return 行文本列表，每行按列顺序排列；单元格不足时该行长度即为实际列数
      * @throws BizException 文件为空、格式非法、行数超限时抛出
      */
     public static List<List<String>> readFirstSheet(MultipartFile file) {
+        return readFirstSheet(file, MAX_DATA_ROWS);
+    }
+
+    /**
+     * 读取第一个工作表的全部行（含表头），使用调用方指定的行数上限。
+     *
+     * <p>上限不能全局统一：员工导入一次几十行，5000 足够；而考勤机导出的是「人 × 天 × 方向」，
+     * 一家 500 人的公司一个月就有上万行。若都卡 5000，考勤机数据会被迫拆成多个文件手工分批。</p>
+     *
+     * @param maxDataRows 单次允许的最大数据行数（不含表头）
+     */
+    public static List<List<String>> readFirstSheet(MultipartFile file, int maxDataRows) {
         if (file == null || file.isEmpty()) {
             throw new BizException(ErrorCode.FILE_EMPTY);
         }
+        int limit = maxDataRows < 1 ? MAX_DATA_ROWS : maxDataRows;
         try (InputStream in = file.getInputStream();
              Workbook workbook = WorkbookFactory.create(in)) {
             Sheet sheet = workbook.getSheetAt(0);
@@ -63,9 +76,9 @@ public final class ExcelImportUtil {
                 // 只有表头（或空表），没有可导入的数据
                 throw new BizException(ErrorCode.USER_IMPORT_EMPTY);
             }
-            if (lastRowNum > MAX_DATA_ROWS) {
+            if (lastRowNum > limit) {
                 throw new BizException(ErrorCode.USER_IMPORT_FILE_INVALID,
-                        "单次导入不能超过 " + MAX_DATA_ROWS + " 行，请拆分后分批导入");
+                        "单次导入不能超过 " + limit + " 行，请拆分后分批导入");
             }
 
             List<List<String>> rows = new ArrayList<>(lastRowNum + 1);

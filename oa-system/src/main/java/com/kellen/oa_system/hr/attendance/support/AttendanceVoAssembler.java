@@ -59,6 +59,10 @@ public class AttendanceVoAssembler {
             vo.setAttendanceDate(a.getAttendanceDate());
             vo.setCheckInTime(a.getCheckInTime());
             vo.setCheckOutTime(a.getCheckOutTime());
+            // 来源要发给前端：网页打卡 / 考勤机 / 补卡 三种数据可信度不同，
+            // HR 判断一条异常记录时，第一件事就是看它是怎么来的
+            vo.setCheckInSource(a.getCheckInSource());
+            vo.setCheckOutSource(a.getCheckOutSource());
             vo.setCheckInLocation(a.getCheckInLocation());
             vo.setCheckOutLocation(a.getCheckOutLocation());
             vo.setWorkDuration(a.getWorkDuration());

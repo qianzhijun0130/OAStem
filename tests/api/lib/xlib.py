@@ -65,6 +65,20 @@ def mysql(sql):
     return out.stdout.strip()
 
 
+def mysql_exec(sql):
+    """执行写操作（DELETE/INSERT/UPDATE），失败抛异常。
+
+    `mysql()` 带 `--force` 且只取 stdout——写失败会被完全吞掉。造夹具时用这个：
+    否则「清场没清掉 + 插入撞唯一索引」会双双静默，脚本照常往下跑，
+    测的是上一轮的残留数据，断言全绿却什么都没验证（本轮就踩了这个坑）。
+    """
+    out = subprocess.run([MYSQL, f"-u{DB_USER}", "-N", "-e", sql],
+                         capture_output=True, text=True, env=dict(os.environ, MYSQL_PWD=DB_PASS))
+    if out.returncode != 0:
+        raise RuntimeError(f"SQL 失败: {out.stderr.strip()[:300]} | SQL: {sql[:200]}")
+    return out.stdout.strip()
+
+
 def redis(*args):
     return subprocess.run([REDIS, *args], capture_output=True, text=True).stdout.strip()
 
@@ -122,6 +136,34 @@ def req(method, path, body=None, tok=None, raw=False, timeout=30, headers=None):
             return e.code, payload
         try:
             return e.code, json.loads(payload.decode() or "{}")
+        except Exception:
+            return e.code, {}
+
+
+def upload(path, filename, content, tok=None, timeout=120, field="file"):
+    """multipart/form-data 上传，返回 (http_status, body)。
+
+    `req()` 只会发 JSON，而 Excel 导入类接口要 multipart。这里手写边界体，
+    不引第三方依赖；filename 用纯 ASCII，避免中文文件名在头部编码上踩坑。
+    """
+    boundary = "----OAStemTestBoundary7d3a"
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+        "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n"
+    ).encode()
+    tail = f"\r\n--{boundary}--\r\n".encode()
+    data = head + content + tail
+    hd = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    if tok:
+        hd["Authorization"] = "Bearer " + tok
+    r = urllib.request.Request(BASE + path, data=data, method="POST", headers=hd)
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as x:
+            return x.status, json.loads(x.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode() or "{}")
         except Exception:
             return e.code, {}
 

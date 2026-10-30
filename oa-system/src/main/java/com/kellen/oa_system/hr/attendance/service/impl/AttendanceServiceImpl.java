@@ -9,6 +9,8 @@ import com.kellen.oa_system.hr.attendance.dto.ShiftSaveRequest;
 import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.attendance.vo.AttendanceMonthVO;
 import com.kellen.oa_system.hr.attendance.vo.AttendanceVO;
+import com.kellen.oa_system.hr.attendance.vo.MachineImportResultVO;
+import com.kellen.oa_system.hr.attendance.vo.MissingCardVO;
 import com.kellen.oa_system.hr.attendance.vo.ScheduleVO;
 import com.kellen.oa_system.hr.attendance.vo.ShiftVO;
 import com.kellen.oa_system.hr.attendance.vo.TodayAttendanceVO;
@@ -16,6 +18,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -49,6 +52,8 @@ public class AttendanceServiceImpl implements AttendanceService {
     private final AttendanceLockService lockService;
     private final AttendanceRecalcService recalcService;
     private final AttendanceExportService exportService;
+    private final AttendanceImportService importService;
+    private final AttendanceMissingCardService missingCardService;
 
     // ==================================================================
     // 班次
@@ -188,6 +193,30 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Transactional(rollbackFor = Exception.class)
     public int resettleLeaveRange(Long userId, LocalDate from, LocalDate to) {
         return recalcService.resettleLeaveRange(userId, from, to);
+    }
+
+    // ==================================================================
+    // 考勤机数据导入与漏卡（BIZ-OPT-08）
+    // ==================================================================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public MachineImportResultVO importMachineRecords(MultipartFile file) {
+        return importService.importMachineRecords(file);
+    }
+
+    @Transactional(readOnly = true)
+    @DataScope
+    @Override
+    public PageResult<MissingCardVO> pageMissingCard(String month, Long deptId, String keyword,
+                                                     Integer pageNo, Integer pageSize) {
+        return missingCardService.pageMissing(month, deptId, keyword, pageNo, pageSize);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public List<MissingCardVO> listMyMissingCard(String month) {
+        return missingCardService.myMissing(month);
     }
 
     // ==================================================================

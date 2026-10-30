@@ -15,6 +15,14 @@ def q(sql):
 
 
 print("== 0. 造数 ==")
+# 个税断言精确编码「5000 × 任职月数」，成立前提是「该员工本年没有更早的已复核记录」。
+# 而 hr_salary.js 等 UI 脚本会造上个月的数据，累计预扣会把它们算进来 → taxable 多出几千。
+# 前置状态由本用例自己建立，不依赖「碰巧库里没有」，否则跑的顺序一变就红（本轮就是这样红的）。
+X.mysql_exec(f"DELETE FROM {DB}.oa_salary_record_item WHERE record_id IN "
+             f"(SELECT id FROM {DB}.oa_salary_record WHERE user_id IN (101808,101809) "
+             f"AND month LIKE '2026-%' AND month < '{M}' AND status >= 2)")
+X.mysql_exec(f"DELETE FROM {DB}.oa_salary_record WHERE user_id IN (101808,101809) "
+             f"AND month LIKE '2026-%' AND month < '{M}' AND status >= 2")
 q(f"DELETE FROM {DB}.oa_salary_record WHERE month='{M}'")
 q(f"DELETE FROM {DB}.oa_attendance_month WHERE month='{M}'")
 q(f"DELETE FROM {DB}.oa_salary_profile WHERE user_id IN (101808,101809,101810)")

@@ -7,6 +7,8 @@ import com.kellen.oa_system.hr.attendance.dto.ScheduleBatchRequest;
 import com.kellen.oa_system.hr.attendance.dto.ShiftSaveRequest;
 import com.kellen.oa_system.hr.attendance.vo.AttendanceMonthVO;
 import com.kellen.oa_system.hr.attendance.vo.AttendanceVO;
+import com.kellen.oa_system.hr.attendance.vo.MachineImportResultVO;
+import com.kellen.oa_system.hr.attendance.vo.MissingCardVO;
 import com.kellen.oa_system.hr.attendance.vo.ShiftVO;
 import com.kellen.oa_system.hr.attendance.vo.ScheduleVO;
 import com.kellen.oa_system.hr.attendance.vo.TodayAttendanceVO;
@@ -129,5 +131,22 @@ public interface AttendanceService {
      * 单次重算失败不会再造成重复扣款。</p>
      */
     void resettleAfterCommit(Long userId, java.time.LocalDate from, java.time.LocalDate to);
+
+    // ---------------- 考勤机数据导入与漏卡（BIZ-OPT-08） ----------------
+
+    /**
+     * 导入考勤机原始刷卡数据。
+     *
+     * <p>逐行校验：能进的行照常写入，坏行原样退回（含行号与原因），重复上传同一文件是幂等的。
+     * 涉及月份已封账时整批拒绝——封账的语义是结果不可再变。</p>
+     */
+    MachineImportResultVO importMachineRecords(org.springframework.web.multipart.MultipartFile file);
+
+    /** 漏卡待处理清单（HR 视角，受数据范围约束） */
+    PageResult<MissingCardVO> pageMissingCard(String month, Long deptId, String keyword,
+                                              Integer pageNo, Integer pageSize);
+
+    /** 我的漏卡待处理清单（自助发起补卡用，不占每月 3 次主动补卡额度） */
+    List<MissingCardVO> listMyMissingCard(String month);
 
 }

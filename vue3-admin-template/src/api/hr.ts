@@ -28,6 +28,8 @@ import type {
   LeaveQuotaVO,
   LeaveSubmitRequest,
   LeaveVO,
+  MachineImportResult,
+  MissingCardVO,
   QuotaAdjustRequest,
   SalaryAdjustPayload,
   SalaryItemSaveRequest,
@@ -177,6 +179,38 @@ export function lockAttendanceMonthApi(month: string) {
 
 export function unlockAttendanceMonthApi(month: string, reason: string) {
   return request<null>({ url: '/hr/attendance/unlock', method: 'post', params: { month, reason } })
+}
+
+/**
+ * 导入考勤机原始刷卡数据。
+ *
+ * <p>超时单独放宽到 120s：默认 10s 对 2 万行的文件不够，超时会被 axios 中断，
+ * 而后端此时可能已经写了一部分——用户看到「超时」，重传一次又会得到一堆 duplicate，
+ * 容易误判成数据错乱。</p>
+ */
+export function importMachineAttendanceApi(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<MachineImportResult>({
+    url: '/hr/attendance/import/machine',
+    method: 'post',
+    data: form,
+    timeout: 120000,
+  })
+}
+
+export function getMissingCardPageApi(params: {
+  month?: string
+  deptId?: number
+  keyword?: string
+  pageNo?: number
+  pageSize?: number
+}) {
+  return request<PageResult<MissingCardVO>>({ url: '/hr/attendance/missing', method: 'get', params })
+}
+
+export function getMyMissingCardsApi(month?: string) {
+  return request<MissingCardVO[]>({ url: '/hr/attendance/missing/my', method: 'get', params: { month } })
 }
 
 /* ==================== 假勤：额度与请假 ==================== */

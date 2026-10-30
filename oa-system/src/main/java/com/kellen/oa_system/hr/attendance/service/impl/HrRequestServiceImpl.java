@@ -9,8 +9,10 @@ import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
 import com.kellen.oa_system.hr.attendance.dto.HrRequestSaveRequest;
 import com.kellen.oa_system.hr.attendance.entity.BusinessTrip;
+import com.kellen.oa_system.hr.attendance.entity.Attendance;
 import com.kellen.oa_system.hr.attendance.entity.CardSupplement;
 import com.kellen.oa_system.hr.attendance.entity.Overtime;
+import com.kellen.oa_system.hr.attendance.mapper.AttendanceMapper;
 import com.kellen.oa_system.hr.attendance.mapper.BusinessTripMapper;
 import com.kellen.oa_system.hr.attendance.mapper.CardSupplementMapper;
 import com.kellen.oa_system.hr.attendance.mapper.OvertimeMapper;
@@ -70,8 +72,12 @@ public class HrRequestServiceImpl implements HrRequestService {
     private static final BigDecimal MAX_OVERTIME_HOURS = BigDecimal.valueOf(36);
     /** 补卡可回溯天数 */
     private static final int CARD_LOOKBACK_DAYS = 30;
-    /** 每月补卡上限 */
+    /** 每月补卡上限（只约束「主动补卡」；漏卡认领不占额度，见 BIZ-OPT-08） */
     private static final int CARD_MONTH_LIMIT = 3;
+    /** 补卡类型：1 主动补卡（计入月配额） */
+    private static final int CARD_TYPE_ACTIVE = 1;
+    /** 补卡类型：2 漏卡补卡（系统已识别缺卡，不计配额） */
+    private static final int CARD_TYPE_MISSING = 2;
 
     private static final Map<Integer, String> STATUS_LABEL = Map.of(
             0, "草稿", 1, "审批中", 2, "已通过", 3, "已驳回", 4, "已撤销");
@@ -79,6 +85,7 @@ public class HrRequestServiceImpl implements HrRequestService {
     private final OvertimeMapper overtimeMapper;
     private final BusinessTripMapper tripMapper;
     private final CardSupplementMapper cardMapper;
+    private final AttendanceMapper attendanceMapper;
     private final LeaveMapper leaveMapper;
     private final FlowDefinitionMapper flowDefinitionMapper;
     private final ApprovalService approvalService;
@@ -218,14 +225,23 @@ public class HrRequestServiceImpl implements HrRequestService {
         if (sameDay != null && sameDay > 0) {
             throw new BizException(ErrorCode.HR_CARD_ALREADY_EXISTS);
         }
-        YearMonth ym = YearMonth.from(request.getCardDate());
-        Long monthCount = cardMapper.selectCount(new LambdaQueryWrapper<CardSupplement>()
-                .eq(CardSupplement::getUserId, userId)
-                .between(CardSupplement::getCardDate, ym.atDay(1), ym.atEndOfMonth())
-                .in(CardSupplement::getCardStatus, List.of(STATUS_APPROVING, 2)));
-        if (monthCount != null && monthCount >= CARD_MONTH_LIMIT) {
-            throw new BizException(ErrorCode.HR_CARD_SUPPLEMENT_LIMIT,
-                    "本月已补卡 " + monthCount + " 次，上限 " + CARD_MONTH_LIMIT + " 次");
+        // 漏卡认领 vs 主动补卡：系统当天已经记了这个方向缺卡（有排班、只有另一侧刷卡），
+        // 说明这是「认领既有事实」而不是「凭空声明」，不占每月 3 次额度。
+        // 不区分的话，考勤机只刷到一次卡的人会被额度挡在门外——而这恰恰是制度上应允许修正的差错。
+        int cardType = isMissingDirection(userId, request.getCardDate(), request.getDirection())
+                ? CARD_TYPE_MISSING : CARD_TYPE_ACTIVE;
+        if (cardType == CARD_TYPE_ACTIVE) {
+            YearMonth ym = YearMonth.from(request.getCardDate());
+            Long monthCount = cardMapper.selectCount(new LambdaQueryWrapper<CardSupplement>()
+                    .eq(CardSupplement::getUserId, userId)
+                    .between(CardSupplement::getCardDate, ym.atDay(1), ym.atEndOfMonth())
+                    .eq(CardSupplement::getCardType, CARD_TYPE_ACTIVE)
+                    .in(CardSupplement::getCardStatus, List.of(STATUS_APPROVING, 2)));
+            if (monthCount != null && monthCount >= CARD_MONTH_LIMIT) {
+                throw new BizException(ErrorCode.HR_CARD_SUPPLEMENT_LIMIT,
+                        "本月主动补卡已 " + monthCount + " 次，上限 " + CARD_MONTH_LIMIT
+                                + " 次（漏卡认领不占额度）");
+            }
         }
         requireFlow(FLOW_CARD);
 
@@ -233,6 +249,7 @@ public class HrRequestServiceImpl implements HrRequestService {
         entity.setUserId(userId);
         entity.setCardDate(request.getCardDate());
         entity.setDirection(request.getDirection());
+        entity.setCardType(cardType);
         entity.setCardTime(request.getCardTime());
         entity.setReason(request.getReason());
         entity.setCardStatus(STATUS_APPROVING);
@@ -248,6 +265,28 @@ public class HrRequestServiceImpl implements HrRequestService {
                 + " - " + (entity.getDirection() == 1 ? "上班" : "下班"), form));
         cardMapper.updateById(entity);
         return entity.getId();
+    }
+
+    /**
+     * 该日该方向是否已被系统识别为缺卡。
+     *
+     * <p>只认「存在考勤行且 card_missing 覆盖该方向」：当天连考勤行都没有（未排班、
+     * 或从未打过任何卡）属于「主动补卡」，仍占额度。判据用既有的
+     * {@code card_missing}（1 缺上班 / 2 缺下班 / 3 两侧都缺），不引入第二套判定。</p>
+     */
+    private boolean isMissingDirection(Long userId, LocalDate date, Integer direction) {
+        Attendance attendance = attendanceMapper.selectOne(new LambdaQueryWrapper<Attendance>()
+                .eq(Attendance::getUserId, userId)
+                .eq(Attendance::getAttendanceDate, date)
+                .last("LIMIT 1"));
+        if (attendance == null || attendance.getCardMissing() == null) {
+            return false;
+        }
+        int missing = attendance.getCardMissing();
+        if (missing == 3) {
+            return true;
+        }
+        return direction != null && direction == missing;
     }
 
     // ---------------- 撤销 ----------------

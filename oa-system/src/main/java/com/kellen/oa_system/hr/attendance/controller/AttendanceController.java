@@ -10,6 +10,8 @@ import com.kellen.oa_system.hr.attendance.dto.ShiftSaveRequest;
 import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.attendance.vo.AttendanceMonthVO;
 import com.kellen.oa_system.hr.attendance.vo.AttendanceVO;
+import com.kellen.oa_system.hr.attendance.vo.MachineImportResultVO;
+import com.kellen.oa_system.hr.attendance.vo.MissingCardVO;
 import com.kellen.oa_system.hr.attendance.vo.ScheduleVO;
 import com.kellen.oa_system.hr.attendance.vo.ShiftVO;
 import com.kellen.oa_system.hr.attendance.vo.TodayAttendanceVO;
@@ -185,5 +187,41 @@ public class AttendanceController {
                                @RequestParam @NotBlank(message = "解封原因不能为空") String reason) {
         attendanceService.unlockMonth(month, reason);
         return Result.success();
+    }
+
+    // ---------------- 考勤机数据导入与漏卡（BIZ-OPT-08） ----------------
+
+    /**
+     * 导入考勤机原始刷卡数据。
+     *
+     * <p>返回体里的 {@code imported / duplicate / failed} 才是成败依据——坏行不阻断整批，
+     * 所以 HTTP 与业务码都是成功。这是刻意的：一万行文件里错三五行是常态，
+     * 整批回滚只会让人对着「导入失败」反复猜是哪一行。</p>
+     */
+    @PostMapping("/import/machine")
+    @PreAuthorize("hasAuthority('hr:attendance:import')")
+    @OperationLog(module = "考勤管理", operation = "导入考勤机数据")
+    public Result<MachineImportResultVO> importMachine(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        return Result.success(attendanceService.importMachineRecords(file));
+    }
+
+    /** 漏卡待处理清单（HR 视角，受数据范围约束） */
+    @GetMapping("/missing")
+    @PreAuthorize("hasAuthority('hr:attendance')")
+    public Result<PageResult<MissingCardVO>> pageMissing(
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) Long deptId,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") Integer pageNo,
+            @RequestParam(defaultValue = "10") Integer pageSize) {
+        return Result.success(attendanceService.pageMissingCard(month, deptId, keyword, pageNo, pageSize));
+    }
+
+    /** 我的漏卡清单（自助补卡入口，不占每月 3 次主动补卡额度） */
+    @GetMapping("/missing/my")
+    @PreAuthorize("isAuthenticated()")
+    public Result<List<MissingCardVO>> myMissing(@RequestParam(required = false) String month) {
+        return Result.success(attendanceService.listMyMissingCard(month));
     }
 }

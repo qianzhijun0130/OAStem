@@ -31,6 +31,15 @@ public final class AttendanceConstants {
     public static final int MONTH_OPEN = 1;
     public static final int MONTH_LOCKED = 2;
 
+    /** 打卡方向：1 上班（签到）/ 2 下班（签退）——补卡、考勤机导入、漏卡清单共用 */
+    public static final int DIRECTION_IN = 1;
+    public static final int DIRECTION_OUT = 2;
+
+    /** 打卡来源：1 网页打卡 / 2 考勤机 / 3 补卡 */
+    public static final int SOURCE_WEB = 1;
+    public static final int SOURCE_MACHINE = 2;
+    public static final int SOURCE_SUPPLEMENT = 3;
+
     /** 审批终态：请假单已通过 */
     public static final int LEAVE_APPROVED = 2;
     /** 审批终态：出差单已通过 */

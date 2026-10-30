@@ -1,4 +1,10 @@
 const path = require('path'), fs = require('fs')
+const { execFileSync } = require('child_process')
+// 核薪前置是「该月考勤已封账」（6402）。这条记录会被 verify_salary 等接口用例清掉，
+// 本脚本若排在其后，核算被 6402 挡下 → 列表为空 → 点「明细」30 秒超时，
+// 表现为「页面崩了」，实际只是缺夹具。造数放 python 侧（node 连不了库）。
+const PY = 'C:/Users/qianz/.workbuddy/binaries/python/envs/default/Scripts/python.exe'
+const SEED_MONTH = path.join(__dirname, '..', '..', 'api', 'hr', 'seed_salary_month_fixture.py')
 const { chromium } = (() => { try { return require('playwright-core') } catch (e) { return require(process.env.PLAYWRIGHT_CORE || 'C:/Users/qianz/.workbuddy/binaries/node/workspace/node_modules/playwright-core') } })()
 const BASE = 'http://127.0.0.1:3000'
 const T = fs.readFileSync(process.env.OA_TOKEN_FILE || require('path').join(__dirname, '..', '..', '.runtime', 'admin_token.txt'), 'utf8').trim()
@@ -11,6 +17,9 @@ const MONTH = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0'
 const UID = 101809
 
 ;(async () => {
+  const fx = execFileSync(PY, [SEED_MONTH, MONTH], { encoding: 'utf8', timeout: 60000 }).trim()
+  ck('夹具：当月考勤已封账', /locked_rows=[1-9]/.test(fx), fx)
+
   const b = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true })
   const ctx = await b.newContext({ viewport: { width: 1500, height: 900 }, deviceScaleFactor: 1.8 })
   const p = await ctx.newPage()

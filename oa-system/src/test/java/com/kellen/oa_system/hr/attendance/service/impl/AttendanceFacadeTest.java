@@ -36,12 +36,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AttendanceFacadeTest {
 
-    /** 拆分前：7 处 readOnly + 11 处 rollbackFor */
-    private static final int EXPECTED_TRANSACTIONAL = 18;
+    /**
+     * 事务注解按<b>实测</b>写，每加一个入口都要重新数（本项目六个模块分别是 9/16/15/18/15/19，
+     * 套模板必错）。当前 21 = 12 读写 + 9 只读；BIZ-OPT-08 新增 1 写（导入）+ 2 只读（漏卡清单）。
+     */
+    private static final int EXPECTED_TRANSACTIONAL = 21;
 
-    private static final int EXPECTED_READ_ONLY = 7;
+    private static final int EXPECTED_READ_ONLY = 9;
 
-    private static final int EXPECTED_INTERFACE_METHODS = 21;
+    /** 21（拆分后）+ 3（导入、漏卡分页、我的漏卡） */
+    private static final int EXPECTED_INTERFACE_METHODS = 24;
 
     @Test
     @DisplayName("门面不直接使用 Mapper")
@@ -56,7 +60,7 @@ class AttendanceFacadeTest {
     }
 
     @Test
-    @DisplayName("事务注解只在门面，数量与拆分前一致（11 读写 + 7 只读）")
+    @DisplayName("事务注解只在门面，数量与实测一致（12 读写 + 9 只读）")
     void transactionAnnotationsStayOnFacade() {
         int total = 0;
         int readOnly = 0;
@@ -71,12 +75,13 @@ class AttendanceFacadeTest {
             }
         }
         assertEquals(EXPECTED_TRANSACTIONAL, total, "门面事务注解数变化，请确认是否符合预期");
-        assertEquals(EXPECTED_READ_ONLY, readOnly, "只读事务数量变化（拆分前 7 处）");
+        assertEquals(EXPECTED_READ_ONLY, readOnly, "只读事务数量变化（当前 9 处）");
 
         for (Class<?> collaborator : List.of(AttendanceShiftService.class, AttendanceScheduleService.class,
                 AttendanceClockService.class, AttendanceQueryService.class,
                 AttendanceSettleService.class, AttendanceRecalcService.class,
-                AttendanceLockService.class, AttendanceExportService.class)) {
+                AttendanceLockService.class, AttendanceExportService.class,
+                AttendanceImportService.class, AttendanceMissingCardService.class)) {
             for (Method m : collaborator.getDeclaredMethods()) {
                 assertTrue(AnnotationUtils.findAnnotation(m, Transactional.class) == null,
                         collaborator.getSimpleName() + "#" + m.getName() + " 不应自带事务注解");
@@ -85,15 +90,16 @@ class AttendanceFacadeTest {
     }
 
     @Test
-    @DisplayName("@DataScope 在门面三个查询入口，协作类不得重复标注")
+    @DisplayName("@DataScope 在门面四个查询入口，协作类不得重复标注")
     void dataScopeStaysOnFacade() {
-        for (String name : List.of("page", "pageMonth", "exportMonth")) {
+        for (String name : List.of("page", "pageMonth", "exportMonth", "pageMissingCard")) {
             Method target = find(AttendanceServiceImpl.class, name);
             assertNotNull(target, "门面缺少方法: " + name);
             assertNotNull(AnnotationUtils.findAnnotation(target, DataScope.class),
                     name + " 必须保留 @DataScope：数据权限快照由切面在该方法上写入");
         }
-        for (Class<?> collaborator : List.of(AttendanceQueryService.class, AttendanceExportService.class)) {
+        for (Class<?> collaborator : List.of(AttendanceQueryService.class, AttendanceExportService.class,
+                AttendanceMissingCardService.class)) {
             for (Method m : collaborator.getDeclaredMethods()) {
                 assertNull(AnnotationUtils.findAnnotation(m, DataScope.class),
                         collaborator.getSimpleName() + "#" + m.getName() + " 不应再标 @DataScope");

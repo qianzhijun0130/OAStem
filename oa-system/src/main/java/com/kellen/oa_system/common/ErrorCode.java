@@ -123,6 +123,8 @@ public enum ErrorCode {
     HR_ATTENDANCE_LOCKED(6205, "该月已封账，需超级管理员解封"),
     HR_ATTENDANCE_ALREADY_CLOCKED(6206, "今日已完成该方向的打卡"),
     HR_FLOW_NOT_DEPLOYED(6207, "该审批流程尚未发布，请先在「流程管理 → 流程模板」发布后再发起"),
+    HR_ATTENDANCE_IMPORT_LOCKED(6208, "导入数据所属月份已封账，不能导入考勤机数据"),
+    HR_ATTENDANCE_IMPORT_HEADER(6209, "考勤机文件表头不正确，请下载系统模板后重新填写"),
     // 63xx 假勤
     HR_LEAVE_QUOTA_NOT_ENOUGH(6301, "该假别可用额度不足"),
     HR_LEAVE_TIME_OVERLAP(6302, "与已有请假单时间重叠"),
