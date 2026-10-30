@@ -13,10 +13,12 @@ import com.kellen.oa_system.hr.performance.vo.PerfAppealVO;
 import com.kellen.oa_system.hr.performance.vo.PerfDistributionVO;
 import com.kellen.oa_system.hr.performance.vo.PerfSheetDetailVO;
 import com.kellen.oa_system.hr.performance.vo.PerfSheetVO;
+import com.kellen.oa_system.hr.performance.vo.PerfImportResultVO;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -40,6 +42,7 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     private final PerfScoreWriteService writeService;
     private final PerfAppealService appealService;
     private final PerfQueryService queryService;
+    private final PerfImportService importService;
 
     // ==================================================================
     // 我的
@@ -167,5 +170,21 @@ public class PerfScoreServiceImpl implements PerfScoreService {
     @Override
     public java.util.Map<Long, BigDecimal> coefficientMap(java.util.Collection<Long> userIds, String month) {
         return queryService.coefficientMap(userIds, month);
+    }
+
+    // ==================================================================
+    // 结果导入（BIZ-OPT-10）
+    // ==================================================================
+
+    @Transactional(readOnly = true)
+    @Override
+    public void downloadImportTemplate(Long cycleId, HttpServletResponse response) {
+        importService.downloadTemplate(cycleId, response);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public PerfImportResultVO importResults(Long cycleId, MultipartFile file) {
+        return importService.importResults(cycleId, file);
     }
 }

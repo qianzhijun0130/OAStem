@@ -72,7 +72,7 @@ def mysql_exec(sql):
     否则「清场没清掉 + 插入撞唯一索引」会双双静默，脚本照常往下跑，
     测的是上一轮的残留数据，断言全绿却什么都没验证（本轮就踩了这个坑）。
     """
-    out = subprocess.run([MYSQL, f"-u{DB_USER}", "-N", "-e", sql],
+    out = subprocess.run([MYSQL, f"-u{DB_USER}", DB, "-N", "-e", sql],
                          capture_output=True, text=True, env=dict(os.environ, MYSQL_PWD=DB_PASS))
     if out.returncode != 0:
         raise RuntimeError(f"SQL 失败: {out.stderr.strip()[:300]} | SQL: {sql[:200]}")

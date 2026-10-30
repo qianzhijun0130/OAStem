@@ -83,4 +83,22 @@ public interface PerfScoreService {
      * 无归档结果的 userId <b>不会</b>出现在返回 Map 中（调用方按「无结果 = 系数 1.0」处理）。</p>
      */
     java.util.Map<Long, BigDecimal> coefficientMap(java.util.Collection<Long> userIds, String month);
+
+    // ---------------- 结果导入（BIZ-OPT-10：历史迁移） ----------------
+
+    /**
+     * 下载导入模板：列由该周期所属方案的指标决定（指标名 + 权重后缀）。
+     *
+     * <p>按周期生成是必须的——不同方案指标不同，固定模板只能在「方案恰好一样」时用。</p>
+     */
+    void downloadImportTemplate(Long cycleId, jakarta.servlet.http.HttpServletResponse response);
+
+    /**
+     * 导入历史绩效结果。
+     *
+     * <p>只允许已结束的周期（已归档或截止日已过）：导入等于直接写终态，
+     * 进行中的周期若允许导入就绕过了四道评分门槛。逐行校验、坏行不阻断整批。</p>
+     */
+    com.kellen.oa_system.hr.performance.vo.PerfImportResultVO importResults(
+            Long cycleId, org.springframework.web.multipart.MultipartFile file);
 }

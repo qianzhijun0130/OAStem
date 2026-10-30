@@ -26,8 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class PerfFacadeTest {
 
-    /** 拆分前：8 处 readOnly（我的/历史/申诉列表/列表/团队/详情/分布/导出）+ 8 处 rollbackFor */
-    private static final int EXPECTED_FACADE_TRANSACTIONAL = 16;
+    /**
+     * 实测计数：9 处 rollbackFor（8 个原有写动作 + 结果导入）+ 9 处 readOnly
+     * （8 个原有查询 + 导入模板下载）。BIZ-OPT-10 加了导入这对方法。
+     */
+    private static final int EXPECTED_FACADE_TRANSACTIONAL = 18;
 
     @Test
     @DisplayName("门面不直接使用 Mapper")
@@ -42,7 +45,7 @@ class PerfFacadeTest {
     }
 
     @Test
-    @DisplayName("事务注解只在门面，数量与拆分前一致（8 读写 + 8 只读）")
+    @DisplayName("事务注解只在门面，数量与实测一致（9 读写 + 9 只读）")
     void transactionAnnotationsStayOnFacade() {
         int total = 0;
         int readOnly = 0;
@@ -57,10 +60,12 @@ class PerfFacadeTest {
             }
         }
         assertEquals(EXPECTED_FACADE_TRANSACTIONAL, total, "门面事务注解数变化，请确认是否符合预期");
-        assertEquals(8, readOnly, "只读事务数量变化（拆分前 8 处）");
+        assertEquals(9, readOnly, "只读事务数量变化（当前 9 处）");
 
         for (Class<?> collaborator : List.of(PerfTargetService.class, PerfScoreWriteService.class,
-                PerfAppealService.class, PerfQueryService.class)) {
+                PerfAppealService.class, PerfQueryService.class, PerfImportService.class,
+                com.kellen.oa_system.hr.performance.support.PerfImportLoader.class,
+                com.kellen.oa_system.hr.performance.support.PerfImportWriter.class)) {
             for (Method m : collaborator.getDeclaredMethods()) {
                 assertTrue(AnnotationUtils.findAnnotation(m, Transactional.class) == null,
                         collaborator.getSimpleName() + "#" + m.getName() + " 不应自带事务注解");

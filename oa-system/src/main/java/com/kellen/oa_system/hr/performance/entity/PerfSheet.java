@@ -45,6 +45,14 @@ public class PerfSheet extends AuditEntity {
     /** 0未确认 1已确认 */
     private Integer confirmStatus;
 
+    /**
+     * 结果来源：1 系统评分 / 2 结果导入（历史迁移）。
+     *
+     * <p>必须区分：导入的分数不是走完「自评→上级评→校准→确认」得来的，
+     * 员工看到一条 85 分要能判断它是不是自己上司打的，申诉时 HR 也要说得清来源。</p>
+     */
+    private Integer source;
+
     /** 最终总分 */
     private BigDecimal totalScore;
 

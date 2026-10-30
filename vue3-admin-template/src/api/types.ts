@@ -1935,8 +1935,29 @@ export interface PerfSheetVO {
   coefficient?: number
   selfMissing: number
   hrScored: number
+  /** 结果来源：1 系统评分 / 2 结果导入（历史迁移） */
+  source?: number
   appealStatus?: number
   remark?: string
+}
+
+/** 绩效结果导入结果：成败看 imported/failed，不看接口是否报错 */
+export interface PerfImportResult {
+  /** 读取到的数据行数 */
+  total: number
+  /** 成功写入的人数 */
+  imported: number
+  /** 覆盖已有考核表的条数（其余为新建） */
+  updated: number
+  /** 校验不通过的行数 */
+  failed: number
+  errors: PerfImportRow[]
+}
+
+export interface PerfImportRow {
+  /** Excel 行号（从 1 开始、含表头） */
+  row: number
+  message: string
 }
 
 export interface PerfSheetDetailVO extends PerfSheetVO {

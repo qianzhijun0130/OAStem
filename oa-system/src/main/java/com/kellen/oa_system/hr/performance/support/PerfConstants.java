@@ -31,4 +31,13 @@ public final class PerfConstants {
 
     /** 申诉窗口：结果确认后 5 个工作日 */
     public static final int APPEAL_WORK_DAYS = 5;
+
+    /** 结果来源：系统评分（走完四道门槛） */
+    public static final int SOURCE_SYSTEM = 1;
+    /** 结果来源：结果导入（历史迁移），前端标「导入」 */
+    public static final int SOURCE_IMPORT = 2;
+
+    /** 指标类型：1 定量 / 2 定性 / 3 加分项 / 4 扣分项（3、4 的权重为 0，分数直接加减） */
+    public static final int INDICATOR_BONUS = 3;
+    public static final int INDICATOR_PENALTY = 4;
 }

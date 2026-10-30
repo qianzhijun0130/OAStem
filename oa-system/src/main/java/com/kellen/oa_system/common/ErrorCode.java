@@ -169,6 +169,8 @@ public enum ErrorCode {
     PERF_NO_SHEET(6516, "当期没有你的考核表"),
     PERF_TARGET_REQUIRED(6517, "请先填写目标值再提交"),
     PERF_GRADE_MISSING(6518, "方案未配置等级映射，无法定级"),
+    PERF_IMPORT_CYCLE_ACTIVE(6515, "该周期仍在进行中，请走正常评分流程；结果导入只用于已结束周期的历史迁移"),
+    PERF_IMPORT_NO_INDICATOR(6519, "该周期所属方案未配置指标，无法生成导入模板"),
 
     // ---------- 招聘 66xx ----------
     RECRUIT_CANDIDATE_DUPLICATE(6601, "该手机号已有候选人记录"),

@@ -18,6 +18,7 @@ import com.kellen.oa_system.hr.performance.service.PerfScoreService;
 import com.kellen.oa_system.hr.performance.vo.PerfAppealVO;
 import com.kellen.oa_system.hr.performance.vo.PerfCycleVO;
 import com.kellen.oa_system.hr.performance.vo.PerfDistributionVO;
+import com.kellen.oa_system.hr.performance.vo.PerfImportResultVO;
 import com.kellen.oa_system.hr.performance.vo.PerfIndicatorVO;
 import com.kellen.oa_system.hr.performance.vo.PerfPlanVO;
 import com.kellen.oa_system.hr.performance.vo.PerfSheetDetailVO;
@@ -294,5 +295,30 @@ public class PerfController {
     @OperationLog(module = "绩效管理", operation = "导出绩效结果 {#cycleId}")
     public void export(@RequestParam Long cycleId, HttpServletResponse response) {
         scoreService.export(cycleId, response);
+    }
+
+    // ---------------- 结果导入（BIZ-OPT-10：历史迁移） ----------------
+
+    /** 下载导入模板：列由该周期所属方案的指标决定 */
+    @GetMapping("/import/template")
+    @PreAuthorize("hasAuthority('hr:performance:import')")
+    @OperationLog(module = "绩效管理", operation = "下载绩效导入模板 {#cycleId}")
+    public void downloadImportTemplate(@RequestParam Long cycleId, HttpServletResponse response) {
+        scoreService.downloadImportTemplate(cycleId, response);
+    }
+
+    /**
+     * 导入历史绩效结果。
+     *
+     * <p>返回体里的 {@code imported / updated / failed} 才是成败依据——坏行不阻断整批，
+     * 所以 HTTP 与业务码都是成功。</p>
+     */
+    @PostMapping("/import")
+    @PreAuthorize("hasAuthority('hr:performance:import')")
+    @OperationLog(module = "绩效管理", operation = "导入绩效结果 {#cycleId}")
+    public Result<PerfImportResultVO> importResults(
+            @RequestParam Long cycleId,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        return Result.success(scoreService.importResults(cycleId, file));
     }
 }

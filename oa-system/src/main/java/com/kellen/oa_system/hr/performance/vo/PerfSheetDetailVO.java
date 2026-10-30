@@ -62,6 +62,9 @@ public class PerfSheetDetailVO {
 
     /** 确认状态 */
     private Integer confirmStatus;
+    /** 结果来源：1 系统评分 / 2 结果导入（历史迁移），前端据此标「导入」 */
+    private Integer source;
+
 
     /** 自评总分 */
     private BigDecimal selfTotal;

@@ -10,6 +10,7 @@ import type {
   PerfCycleVO,
   PerfDistributionVO,
   PerfIndicatorSaveRequest,
+  PerfImportResult,
   PerfIndicatorVO,
   PerfPlanSaveRequest,
   PerfPlanVO,
@@ -176,4 +177,34 @@ export function getPerfDistributionApi(cycleId: number) {
  */
 export function exportPerfResultApi(cycleId: number) {
   return downloadFile('/hr/perf/export', { cycleId }, '绩效结果.xlsx')
+}
+
+/* ==================== 结果导入（BIZ-OPT-10：历史迁移） ==================== */
+
+/**
+ * 下载导入模板。
+ *
+ * <p>模板按周期生成（每个方案的指标不同），所以必须带 cycleId；
+ * 文件名由后端命名（含周期名），这里给一个兜底名。</p>
+ */
+export function downloadPerfImportTemplateApi(cycleId: number) {
+  return downloadFile('/hr/perf/import/template', { cycleId }, '绩效结果导入模板.xlsx')
+}
+
+/**
+ * 导入历史绩效结果。
+ *
+ * <p>超时放宽到 120s：历史迁移一次几十到几百人，默认 10s 不够。
+ * 返回值里的 imported/updated/failed 才是成败依据——坏行不阻断整批。</p>
+ */
+export function importPerfResultsApi(cycleId: number, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<PerfImportResult>({
+    url: '/hr/perf/import',
+    method: 'post',
+    params: { cycleId },
+    data: form,
+    timeout: 120000,
+  })
 }

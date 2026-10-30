@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import SheetDetailDrawer from '../dialogs/SheetDetailDrawer.vue'
+import PerfImportButton from '../components/PerfImportButton.vue'
 import { usePerfSheet } from '../composables/usePerfSheet'
 import { gradeTagType, money1 } from '../display'
 import type { PerfCycleBoard } from '../composables/usePerfCycleBoard'
@@ -65,6 +66,8 @@ defineExpose({ refresh: reload })
       <el-button v-permission="'hr:performance:export'" :loading="exporting" data-action="export" @click="exportResult(board.cycleId)">
         导出
       </el-button>
+      <!-- 历史迁移：先下模板再导入，导入的成绩标「导入」来源 -->
+      <PerfImportButton :cycle-id="board.cycleId" @imported="reload()" />
     </el-form-item>
   </el-form>
 
@@ -73,6 +76,12 @@ defineExpose({ refresh: reload })
     <el-table-column prop="workNumber" label="工号" width="105" />
     <el-table-column prop="realName" label="姓名" width="90" />
     <el-table-column prop="deptName" label="部门" min-width="110" show-overflow-tooltip />
+    <el-table-column label="来源" width="80">
+      <template #default="{ row }">
+        <el-tag v-if="row.source === 2" type="warning" size="small" effect="plain">导入</el-tag>
+        <span v-else class="perf__source-system">系统</span>
+      </template>
+    </el-table-column>
     <el-table-column prop="leaderName" label="直属上级" width="100" />
     <el-table-column label="目标" width="95">
       <template #default="{ row }">

@@ -97,6 +97,7 @@ public class PerfVoAssembler {
             vo.setManagerStatus(sheet.getManagerStatus());
             vo.setCalibrateStatus(sheet.getCalibrateStatus());
             vo.setConfirmStatus(sheet.getConfirmStatus());
+            vo.setSource(sheet.getSource());
             vo.setTotalScore(sheet.getTotalScore());
             vo.setGradeCode(sheet.getGradeCode());
             vo.setCoefficient(sheet.getCoefficient());
