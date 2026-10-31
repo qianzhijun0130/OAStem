@@ -1097,6 +1097,38 @@ export interface PositionSaveRequest {
   sort?: number
 }
 
+/**
+ * 建档完整度看板（BIZ-OPT-09）。
+ *
+ * <p>维度缺失不会让功能立刻报错，而是几个月后集中爆发（社保缺号、年假算不出、
+ * 合同到期无提醒、发工资缺卡号）。所以这张卡片存在的意义是「把隐患变成清单」。</p>
+ */
+export interface EmployeeCompletenessVO {
+  /** 在职员工总数（分母） */
+  totalOnDuty: number
+  cards: CompletenessCard[]
+}
+
+export interface CompletenessCard {
+  /** 维度编码，点击卡片查清单时原样回传 */
+  dimension: string
+  label: string
+  count: number
+  /** 占在职人数百分比（0~100，一位小数） */
+  percent: number
+}
+
+export interface CompletenessItemVO {
+  userId: number
+  workNumber?: string
+  realName?: string
+  deptName?: string
+  employmentStatus?: number
+  employmentStatusLabel?: string
+  entryDate?: string
+  directLeaderName?: string
+}
+
 export interface EmployeeVO {
   id: number
   username: string

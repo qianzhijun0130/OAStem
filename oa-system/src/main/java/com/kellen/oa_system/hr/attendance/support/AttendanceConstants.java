@@ -1,5 +1,6 @@
 package com.kellen.oa_system.hr.attendance.support;
 
+import com.kellen.oa_system.hr.common.enums.LeaveTypeEnum;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -50,10 +51,15 @@ public final class AttendanceConstants {
     /** 参与排班的在职状态（试用/正式/待离职） */
     public static final List<Integer> EMPLOYED = List.of(2, 3, 4);
 
-    /** 假别名称（与字典 hr_leave_type 一致，用于月汇总的 leave_days_json） */
-    public static final Map<Integer, String> LEAVE_TYPE_LABEL = Map.of(
-            1, "事假", 2, "病假", 3, "年假", 4, "婚假",
-            5, "产假", 6, "陪产假", 7, "丧假", 8, "调休");
+    /**
+     * 假别名称（用于月汇总的 {@code leave_days_json} 键）。
+     *
+     * <p>直接取自 {@link LeaveTypeEnum#labelMap()}，不再本地维护一份：
+     * 这份 JSON 的键会被薪资核算当作「事假/病假」的匹配依据。
+     * 一旦考勤侧与薪资侧各写一份中文名，改名时只改一处就会让扣款静默失效——
+     * 月汇总里明明有 3 天事假，工资条上扣款却是 0，且不报任何错。</p>
+     */
+    public static final Map<Integer, String> LEAVE_TYPE_LABEL = LeaveTypeEnum.labelMap();
 
     /** 加班类型 → 薪资倍率分组标签 */
     public static final String OVERTIME_WORKDAY = "工作日";

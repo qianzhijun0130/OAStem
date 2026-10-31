@@ -7,8 +7,11 @@ import com.kellen.oa_system.hr.employee.dto.CertSaveRequest;
 import com.kellen.oa_system.hr.employee.dto.ContractSaveRequest;
 import com.kellen.oa_system.hr.employee.dto.EmployeePageQuery;
 import com.kellen.oa_system.hr.employee.dto.EmployeeProfileRequest;
+import com.kellen.oa_system.hr.employee.service.EmployeeCompletenessService;
 import com.kellen.oa_system.hr.employee.service.EmployeeService;
 import com.kellen.oa_system.hr.employee.vo.ChangeVO;
+import com.kellen.oa_system.hr.employee.vo.CompletenessItemVO;
+import com.kellen.oa_system.hr.employee.vo.EmployeeCompletenessVO;
 import com.kellen.oa_system.hr.employee.vo.EmployeeDetailVO;
 import com.kellen.oa_system.hr.employee.vo.EmployeeVO;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -39,6 +43,7 @@ import java.util.List;
 public class EmployeeController {
 
     private final EmployeeService employeeService;
+    private final EmployeeCompletenessService completenessService;
 
     @GetMapping("/page")
     @PreAuthorize("hasAuthority('hr:employee')")
@@ -108,6 +113,38 @@ public class EmployeeController {
     /**
      * 花名册导出。直接写响应流，因此不返回 {@code Result}。
      */
+    // ---------------- 建档完整度（BIZ-OPT-09） ----------------
+    //
+    // 路径刻意是两段（/completeness/xxx）而不是 /completeness：
+    // 本类已有 @GetMapping("/{id}")，单段路径虽然按 Spring 的「字面量优先于变量」
+    // 仍能匹配到，但一旦哪天有人把 {id} 改成 {id:.+} 之类，就会被它抢走。
+    // 两段路径与现有映射没有任何交集，长期更安全。
+
+    /** 六个维度的缺失人数与占比 */
+    @GetMapping("/completeness/summary")
+    @PreAuthorize("hasAuthority('hr:employee')")
+    public Result<EmployeeCompletenessVO> completenessSummary() {
+        return Result.success(completenessService.summary());
+    }
+
+    /** 某个维度的人员清单 */
+    @GetMapping("/completeness/items")
+    @PreAuthorize("hasAuthority('hr:employee')")
+    public Result<PageResult<CompletenessItemVO>> completenessItems(
+            @RequestParam String dimension,
+            @RequestParam(defaultValue = "1") int pageNo,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        return Result.success(completenessService.items(dimension, pageNo, pageSize));
+    }
+
+    /** 某个维度的人员清单导出 */
+    @GetMapping("/completeness/export")
+    @PreAuthorize("hasAuthority('hr:employee:export')")
+    @OperationLog(module = "员工档案", operation = "导出建档完整度 {#dimension}")
+    public void completenessExport(@RequestParam String dimension, HttpServletResponse response) {
+        completenessService.export(dimension, response);
+    }
+
     @GetMapping("/export")
     @PreAuthorize("hasAuthority('hr:employee:export')")
     @OperationLog(module = "员工档案", operation = "导出花名册")

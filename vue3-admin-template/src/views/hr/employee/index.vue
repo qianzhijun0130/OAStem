@@ -8,6 +8,7 @@ import {
   listPositionOptionsApi,
   updateEmployeeProfileApi,
 } from '@/api/hr'
+import CompletenessPanel from './components/CompletenessPanel.vue'
 import { getDeptTreeApi } from '@/api/dept'
 import { useListQuery } from '@/composables/useListQuery'
 import { logAsyncError } from '@/utils/asyncGuard'
@@ -177,6 +178,11 @@ onMounted(async () => {
 
 <template>
   <div class="hr-employee">
+    <!-- 建档完整度：只读统计，点卡片看待补清单（BIZ-OPT-09） -->
+    <el-card shadow="never" class="hr-employee__completeness">
+      <CompletenessPanel />
+    </el-card>
+
     <el-card shadow="never">
       <div class="hr-employee__head">
         <el-form :inline="true" class="hr-employee__filters" @submit.prevent>
@@ -560,5 +566,8 @@ onMounted(async () => {
   margin-top: 2px;
   color: #8a94a5;
   font-size: 12px;
+}
+.hr-employee__completeness {
+  margin-bottom: 12px;
 }
 </style>

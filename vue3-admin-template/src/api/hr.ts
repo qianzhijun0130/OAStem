@@ -8,6 +8,8 @@ import type {
   ChangeVO,
   ClockRequest,
   ContractSaveRequest,
+  CompletenessItemVO,
+  EmployeeCompletenessVO,
   EmployeeDetailVO,
   EmployeePageQuery,
   EmployeeProfileRequest,
@@ -116,6 +118,33 @@ export function deleteCertApi(id: number, certId: number) {
  */
 export function exportEmployeeApi(params: EmployeePageQuery) {
   return downloadFile('/hr/employee/export', { ...params }, '员工花名册.xlsx')
+}
+
+/* ==================== 建档完整度（BIZ-OPT-09） ==================== */
+
+/**
+ * 六个维度的缺失人数与占比。
+ *
+ * <p>不传部门：口径与花名册一致（在职 2/3/4 + 数据范围），部门维度由清单接口自己筛。</p>
+ */
+export function getCompletenessSummaryApi() {
+  return request<EmployeeCompletenessVO>({ url: '/hr/employee/completeness/summary', method: 'get' })
+}
+
+export function getCompletenessItemsApi(params: {
+  dimension: string
+  pageNo?: number
+  pageSize?: number
+}) {
+  return request<PageResult<CompletenessItemVO>>({
+    url: '/hr/employee/completeness/items',
+    method: 'get',
+    params,
+  })
+}
+
+export function exportCompletenessApi(dimension: string, label: string) {
+  return downloadFile('/hr/employee/completeness/export', { dimension }, `建档完整度-${label}.xlsx`)
 }
 
 /* ==================== 考勤 ==================== */

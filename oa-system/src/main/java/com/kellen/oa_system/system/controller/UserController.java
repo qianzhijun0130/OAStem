@@ -74,10 +74,14 @@ public class UserController {
     }
 
     /**
-     * 批量导入员工。
+     * 批量导入员工（BIZ-OPT-09）。
      *
-     * <p>整批校验、全对才入库：任一行有问题则返回 {@code imported=false} 与逐行原因，
-     * HTTP 仍为 200——文件本身没有错，错的是内容，不该走全局异常处理。</p>
+     * <p><b>逐行成功、失败行跳过</b>（不再是整批拒绝）：返回值里的
+     * {@code successCount / failCount / errors} 才是成败依据，HTTP 与业务码都是成功。
+     * 这一点必须由前端把明细摊开给 HR 看——否则「接口没报错」被当成「全部导入成功」，
+     * 漏掉的那几个人要等发工资时才发现。</p>
+     *
+     * <p>旧版 10 列模板会在表头校验阶段被拒，提示「请下载新模板」。</p>
      */
     @PostMapping("/import")
     @PreAuthorize("hasAuthority('system:user:import')")

@@ -1,12 +1,14 @@
 package com.kellen.oa_system.hr.employee.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
 import com.kellen.oa_system.common.util.ExcelExportUtil;
+import com.kellen.oa_system.common.util.IdCardUtil;
 import com.kellen.oa_system.hr.common.enums.EmploymentStatusEnum;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
 import com.kellen.oa_system.hr.common.support.HrRoles;
@@ -32,6 +34,7 @@ import com.kellen.oa_system.hr.employee.vo.EmployeeVO;
 import com.kellen.oa_system.hr.position.entity.Position;
 import com.kellen.oa_system.hr.position.mapper.PositionMapper;
 import com.kellen.oa_system.security.LoginUser;
+import com.kellen.oa_system.system.support.IdCardGuard;
 import com.kellen.oa_system.security.OnlineUserRegistry;
 import com.kellen.oa_system.security.SecurityContextUtil;
 import com.kellen.oa_system.system.entity.Department;
@@ -84,6 +87,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final EmployeeChangeMapper changeMapper;
     private final HrDataScopeSupport hrDataScopeSupport;
     private final OnlineUserRegistry onlineUserRegistry;
+    private final IdCardGuard idCardGuard;
 
     @Transactional(readOnly = true)
     @Override
@@ -237,6 +241,8 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         User patch = new User();
         patch.setId(userId);
+        // 清空身份证时需要单独把盲索引置 NULL（见下方身份证处理段）
+        boolean idCardHashToClear = false;
 
         // ---------- 任职状态：走状态机 + 联动账号 ----------
         if (request.getEmploymentStatus() != null
@@ -306,9 +312,47 @@ public class EmployeeServiceImpl implements EmployeeService {
             patch.setEmail(request.getEmail());
         }
         if (request.getIdCard() != null) {
-            patch.setIdCard(request.getIdCard());
+            // 「值没变 + 原值本身不合法」时完全跳过：既不校验也不重写，也不动盲索引。
+            //
+            // 为什么单独放行这一种情况：存量档案里可能有校验码不对的历史身份证
+            // （老系统直接导入、纸质件录错一位）。若每次保存都强校验，这些人的档案会因为
+            // 「身份证格式错误」而彻底改不了——连手机号都改不了，而他们恰恰最需要被修正。
+            // 改其它字段时不动身份证即可正常保存；真要更正，填一个合法号码进来即可通过。
+            //
+            // 反过来，「值没变但合法」仍然照常写入：加密用随机 IV，每次写都会产生新密文，
+            // 这正是「重复保存不会套娃加密」的验证点（verify_crypto 会检查密文变化且可解）。
+            boolean sameValue = Objects.equals(
+                    IdCardUtil.normalize(request.getIdCard()), IdCardUtil.normalize(user.getIdCard()));
+            boolean legacyInvalid = sameValue && !IdCardUtil.isValid(request.getIdCard());
+            if (!legacyInvalid) {
+                // 改身份证必须同时重新算盲索引，否则查重会继续命中旧号（甚至永远查不到新人）。
+                // 查重放在这里而不是只放前端：前端只能拦「同一页面里已知的」，
+                // 跨页面/直接调接口拦不住。
+                idCardGuard.assertNotDuplicated(request.getIdCard(), userId);
+                patch.setIdCard(request.getIdCard());
+                patch.setIdCardHash(idCardGuard.hashOfNullable(request.getIdCard()));
+                if (!StringUtils.hasText(request.getIdCard())) {
+                    // 清空身份证时哈希也要清。updateById 的空值策略会跳过 null 字段，
+                    // 只靠实体更新会留下一个指向旧号码的哈希——那个人从此「身份证已被占用」，
+                    // 而且占用者是空档案，谁也查不出来。
+                    idCardHashToClear = true;
+                }
+                if (request.getBirthDate() == null) {
+                    // 生日与性别本来就是身份证里的信息，填了身份证还让人再填一遍属重复劳动，
+                    // 且两处不一致时无法判断哪个对。这里只在未显式填写时按身份证补算。
+                    patch.setBirthDate(IdCardUtil.birthDateOf(request.getIdCard()));
+                }
+            }
         }
         userMapper.updateById(patch);
+        if (idCardHashToClear) {
+            // 单独一条 UPDATE：updateById 的 NOT_NULL 策略写不进 null。
+            // 这里只动 id_card_hash 一列，不涉及加密字段，因此用 LambdaUpdateWrapper 是安全的
+            //（加密字段走 wrapper 会绕过 TypeHandler，把明文写进库里）。
+            userMapper.update(null, new LambdaUpdateWrapper<User>()
+                    .eq(User::getId, userId)
+                    .set(User::getIdCardHash, null));
+        }
 
         // 禁用账号后必须摘掉在线会话，否则令牌在有效期内仍可继续访问
         if (patch.getStatus() != null && patch.getStatus() == 0) {

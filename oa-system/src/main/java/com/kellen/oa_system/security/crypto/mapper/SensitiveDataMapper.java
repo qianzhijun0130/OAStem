@@ -44,4 +44,18 @@ public interface SensitiveDataMapper {
 
     @Update("UPDATE oa_employee_bank SET fund_no = #{value} WHERE id = #{id}")
     int updateFundNo(@Param("id") Long id, @Param("value") String value);
+
+    /**
+     * 取「有身份证但缺盲索引」的行（库里原始密文，绕过 TypeHandler）。
+     *
+     * <p>三类行都会落进来：本次新加列之后的历史行、加密迁移尚未覆盖的明文行、
+     * 以及早先通过其它入口写入但漏算哈希的行。回填对三类都适用。</p>
+     */
+    @Select("SELECT id, id_card AS v FROM oa_user "
+            + "WHERE id_card IS NOT NULL AND id_card <> '' "
+            + "AND (id_card_hash IS NULL OR id_card_hash = '')")
+    List<Map<String, Object>> selectIdCardsMissingHash();
+
+    @Update("UPDATE oa_user SET id_card_hash = #{hash} WHERE id = #{id}")
+    int updateIdCardHash(@Param("id") Long id, @Param("hash") String hash);
 }

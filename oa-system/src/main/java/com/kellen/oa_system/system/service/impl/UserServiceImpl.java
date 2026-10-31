@@ -3,6 +3,8 @@ package com.kellen.oa_system.system.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kellen.oa_system.common.BizException;
+import com.kellen.oa_system.common.util.IdCardUtil;
+import com.kellen.oa_system.hr.common.enums.EmploymentStatusEnum;
 import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
@@ -23,6 +25,7 @@ import com.kellen.oa_system.system.mapper.RoleMapper;
 import com.kellen.oa_system.system.mapper.RoleMenuMapper;
 import com.kellen.oa_system.system.mapper.UserMapper;
 import com.kellen.oa_system.system.mapper.UserRoleMapper;
+import com.kellen.oa_system.system.support.IdCardGuard;
 import com.kellen.oa_system.system.service.UserService;
 import com.kellen.oa_system.system.service.WorkNumberService;
 import com.kellen.oa_system.system.service.support.DataScopeSupport;
@@ -77,6 +80,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
+    private final IdCardGuard idCardGuard;
     private final RoleMapper roleMapper;
     private final DataScopeSupport dataScopeSupport;
     private final RoleMenuMapper roleMenuMapper;
@@ -301,10 +305,19 @@ public class UserServiceImpl implements UserService {
         // 入职日期：未填写时取表单提交当日，避免出现空入职日期
         user.setEntryDate(request.getEntryDate() == null ? LocalDate.now() : request.getEntryDate());
         user.setWorkNumber(workNumber);
+        // 建档扩展字段（身份证/上级/参加工作日期/试用期/任职状态），必须在 entryDate 落定之后，
+        // 因为「待入职 or 试用」与「参加工作日期默认值」都依赖入职日期
+        applyProfileFields(user, request);
         // 新增：currentDeptId 传 null，即要求所选部门必须为启用状态
         user.setCompanyId(resolveCompanyId(request.getDeptId(), null));
         user.setPassword(passwordEncoder.encode(rawPwd));
         user.setStatus(request.getStatus() == null ? 1 : request.getStatus());
+        // 待入职/已离职等状态不允许登录，与档案页变更任职状态时的联动保持一致。
+        // 批量导入最常踩这个：入职日期填下周一，50 个账号全部启用，
+        // 人还没来就能登录、能打卡、能看公告——而这批账号的初始密码是统一默认值。
+        if (EmploymentStatusEnum.of(user.getEmploymentStatus()).forbidsLogin()) {
+            user.setStatus(0);
+        }
         userMapper.insert(user);
         // 未指定角色 → 自动绑定「普通员工」。放在服务端而不是只靠前端预选：
         // 直接调接口（脚本、导入、第三方对接）同样要遵守这条规则，否则会造出无任何权限的账号。
@@ -386,6 +399,60 @@ public class UserServiceImpl implements UserService {
         user.setPosition(request.getPosition());
         user.setWorkNumber(request.getWorkNumber());
         user.setEntryDate(request.getEntryDate());
+    }
+
+    /**
+     * 建档扩展字段（BIZ-OPT-09）：身份证、上级、参加工作日期、试用期、任职状态。
+     *
+     * <p>只在新增时调用。编辑档案走 {@code EmployeeProfileRequest}，
+     * 那里有任职状态机校验与变更留痕，不能因为「这里也能改」而被绕过。</p>
+     *
+     * <p>几个默认值都有业务含义，不是随手兜底：</p>
+     * <ul>
+     *   <li><b>任职状态</b>：未指定时按入职日期判定——未到入职日为「待入职」、否则「试用」。
+     *       旧实现一律落「正式」（数据库默认 3），批量入职的人全部跳过试用期，
+     *       转正提醒、试用期考核全都不会触发。</li>
+     *   <li><b>参加工作日期</b>：未填则取入职日期。留空会让年假按 0 工龄计算，
+     *       老员工一进来就「没有年假额度」。</li>
+     *   <li><b>出生日期</b>：未填则按身份证补算，避免生日提醒对新人失效。</li>
+     * </ul>
+     */
+    private void applyProfileFields(User user, UserSaveRequest request) {
+        // 身份证：查重 + 加密列由 TypeHandler 处理，盲索引在这里显式算
+        if (StringUtils.hasText(request.getIdCard())) {
+            idCardGuard.assertNotDuplicated(request.getIdCard(), null);
+            user.setIdCard(request.getIdCard());
+            user.setIdCardHash(idCardGuard.hashOfNullable(request.getIdCard()));
+        }
+        user.setBirthDate(request.getBirthDate() != null
+                ? request.getBirthDate() : IdCardUtil.birthDateOf(request.getIdCard()));
+        if (request.getDirectLeaderId() != null) {
+            if (userMapper.selectById(request.getDirectLeaderId()) == null) {
+                throw new BizException(ErrorCode.USER_NOT_FOUND, "直属上级不存在");
+            }
+            user.setDirectLeaderId(request.getDirectLeaderId());
+        }
+        LocalDate entry = user.getEntryDate() == null ? LocalDate.now() : user.getEntryDate();
+        user.setWorkStartDate(request.getWorkStartDate() != null ? request.getWorkStartDate() : entry);
+        user.setProbationEndDate(request.getProbationEndDate());
+        user.setEmploymentStatus(resolveInitialEmploymentStatus(request.getEmploymentStatus(), entry));
+    }
+
+    /**
+     * 新增员工的初始任职状态。
+     *
+     * <p>只允许落在「待入职 / 试用 / 正式」三档：新增一个「已离职」的人在语义上没意义，
+     * 而「待离职」需要一条离职流程支撑。传其它值直接拒绝，避免脏状态从建档口进来。</p>
+     */
+    private Integer resolveInitialEmploymentStatus(Integer requested, LocalDate entryDate) {
+        if (requested != null) {
+            if (!List.of(1, 2, 3).contains(requested)) {
+                throw new BizException(ErrorCode.HR_EMPLOYMENT_STATUS_INVALID,
+                        "新增员工时任职状态只能是「待入职」「试用」或「正式」");
+            }
+            return requested;
+        }
+        return entryDate.isAfter(LocalDate.now()) ? 1 : 2;
     }
 
     /**

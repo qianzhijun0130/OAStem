@@ -99,4 +99,36 @@ class AesCryptoTest {
         AesCrypto shortKey = new AesCrypto("abc");
         assertEquals(ID_CARD, shortKey.decrypt(shortKey.encrypt(ID_CARD)));
     }
+
+    // ------------------------------------------------------------------
+    // 盲索引（BIZ-OPT-09：身份证查重）
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("盲索引确定性：同号同值、去空白与大小写不影响、不同号不同值")
+    void blindIndexIsDeterministic() {
+        String a = crypto.blindIndex(ID_CARD);
+        String b = crypto.blindIndex(" " + ID_CARD + " ");
+        assertEquals(a, b, "去空白后必须得到同一摘要，否则同一个人会被判成两人");
+        assertEquals(64, a.length(), "HMAC-SHA256 的十六进制表示应为 64 位");
+        assertNotEquals(a, crypto.blindIndex("110101199003071235"));
+        assertNull(crypto.blindIndex(null), "空值返回 null，与「未填写」语义一致");
+        assertNull(crypto.blindIndex("   "));
+    }
+
+    @Test
+    @DisplayName("盲索引带密钥：换密钥后同一号码得到不同摘要（不可跨密钥比对）")
+    void blindIndexDependsOnKey() {
+        AesCrypto other = new AesCrypto("another-key-0123456789abcdef");
+        assertNotEquals(crypto.blindIndex(ID_CARD), other.blindIndex(ID_CARD),
+                "裸 SHA-256 会让身份证这种小空间数据可被穷举反推，必须带密钥");
+    }
+
+    @Test
+    @DisplayName("盲索引不可反推：摘要里不含明文片段，且与密文不同")
+    void blindIndexIsNotReversible() {
+        String hash = crypto.blindIndex(ID_CARD);
+        assertFalse(hash.contains(ID_CARD.substring(0, 6)));
+        assertNotEquals(crypto.encrypt(ID_CARD), hash);
+    }
 }

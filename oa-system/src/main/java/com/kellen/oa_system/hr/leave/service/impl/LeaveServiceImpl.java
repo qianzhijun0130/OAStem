@@ -7,6 +7,7 @@ import com.kellen.oa_system.common.ErrorCode;
 import com.kellen.oa_system.common.PageResult;
 import com.kellen.oa_system.common.annotation.DataScope;
 import com.kellen.oa_system.common.util.ExcelExportUtil;
+import com.kellen.oa_system.hr.common.enums.LeaveTypeEnum;
 import com.kellen.oa_system.hr.attendance.service.AttendanceService;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
 import com.kellen.oa_system.hr.common.support.HrRoles;
@@ -75,11 +76,18 @@ public class LeaveServiceImpl implements LeaveService {
 
     /** 需要额度校验的假别：年假、调休 */
     private static final Set<Integer> QUOTA_TYPES = Set.of(3, 8);
-    /** 按地方政策限制天数的假别：婚假、产假、陪产假、丧假 */
-    private static final Set<Integer> POLICY_TYPES = Set.of(4, 5, 6, 7);
+    /**
+     * 按地方政策限制天数的假别：婚假、产假、陪产假、丧假。
+     *
+     * <p>不再本地枚举，改用 {@link LeaveTypeEnum#policyControlledCodes()}：
+     * 「哪些假别受地方政策限制」这个属性已经长在枚举上（地方政策配置页也用同一份），
+     * 两处各写一份的结果是新增一个法定假别时，政策页能配但校验不认。
+     * 注：本集合与 {@link #QUOTA_TYPES} 是两套不同规则（额度 vs 法定天数），不要合并。</p>
+     */
+    private static final Set<Integer> POLICY_TYPES = LeaveTypeEnum.policyControlledCodes();
 
-    private static final Map<Integer, String> TYPE_LABEL = Map.of(
-            1, "事假", 2, "病假", 3, "年假", 4, "婚假", 5, "产假", 6, "陪产假", 7, "丧假", 8, "调休");
+    /** 假别中文名：统一取自 {@link LeaveTypeEnum}，不再本地维护 */
+    private static final Map<Integer, String> TYPE_LABEL = LeaveTypeEnum.labelMap();
 
     private static final Map<Integer, String> STATUS_LABEL = Map.of(
             0, "草稿", 1, "审批中", 2, "已通过", 3, "已驳回", 4, "已撤销");

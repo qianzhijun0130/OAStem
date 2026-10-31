@@ -65,6 +65,19 @@ public enum LeaveTypeEnum {
                 .findFirst().orElse(null);
     }
 
+    /**
+     * 编码 → 中文名 的完整映射（不可变）。
+     *
+     * <p>供「把假别按名字汇总成 JSON」这类场景使用（月汇总的 {@code leave_days_json}、
+     * 请假列表的假别列）。<b>任何地方都不要再自己写一份</b>——本方法存在的唯一理由
+     * 就是让假别中文名只有一处定义。</p>
+     */
+    public static java.util.Map<Integer, String> labelMap() {
+        return Arrays.stream(values())
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        LeaveTypeEnum::getCode, LeaveTypeEnum::getLabel));
+    }
+
     public static String labelOf(Integer code) {
         if (code == null) {
             return null;

@@ -340,15 +340,25 @@ async function submitImport() {
   importing.value = true
   try {
     const result = await importUsersApi(importFile.value)
-    if (result.imported) {
+    // 逐行成功语义（BIZ-OPT-09）：有成功也有失败时必须留在对话框里，
+    // 把「成功几条、失败几行、失败原因」一次摊开。直接关窗只弹一句「导入完成」
+    // 会让管理员以为全部成功，漏掉的那几个人要等发工资才发现。
+    const partiallyFailed = (result.failCount ?? 0) > 0
+    if (result.imported && !partiallyFailed) {
       ElMessage.success(result.message || '导入成功')
       importVisible.value = false
       await refresh()
       return
     }
-    // 整批未通过：文件本身没错，把逐行原因留在对话框里供管理员对照修改
     importResult.value = result
-    ElMessage.warning(result.message || '校验未通过，本次未导入任何数据')
+    if (result.imported) {
+      ElMessage.warning(result.message || '部分行未导入，请查看明细')
+      // 部分成功也必须刷新列表：已经进库的人要立刻出现在列表里，
+      // 否则管理员重传时会重复填写这些人
+      await refresh()
+    } else {
+      ElMessage.warning(result.message || '校验未通过，本次未导入任何数据')
+    }
   } finally {
     importing.value = false
   }
@@ -587,7 +597,7 @@ async function loadDeptAndRoles() {
         :closable="false"
         show-icon
         title="请先下载模板，按模板填写后再上传"
-        description="任意一行校验失败则整批不导入，系统会给出行号与原因。新增员工的初始密码统一为系统默认初始密码。"
+        description="校验失败的行会被跳过并给出原因，其余行照常入库（不做整批回滚）。模板含身份证、合同与试用期等建档字段，任职状态默认按入职日期判定。"
         style="margin-bottom: 16px"
       />
       <el-form label-width="0">
@@ -611,14 +621,19 @@ async function loadDeptAndRoles() {
         </el-form-item>
       </el-form>
 
-      <div v-if="importResult && !importResult.imported" class="user__import-errors">
-        <el-divider content-position="left">校验结果（共 {{ importResult.failCount }} 行有问题）</el-divider>
+      <div v-if="importResult && importResult.failCount" class="user__import-errors">
+        <el-divider content-position="left">
+          校验结果（成功 {{ importResult.successCount }} 条，失败 {{ importResult.failCount }} 行）
+        </el-divider>
         <el-table :data="shownImportErrors" border size="small" max-height="260">
           <el-table-column prop="row" label="行号" width="90" />
           <el-table-column prop="message" label="原因" min-width="200" />
         </el-table>
         <div v-if="importResult.failCount > shownImportErrors.length" class="user__import-more">
           仅显示前 {{ shownImportErrors.length }} 条，请按行号修正后重新上传
+        </div>
+        <div v-if="importResult.imported" class="user__import-more">
+          已成功的 {{ importResult.successCount }} 条不会重复创建，修正后可只重新上传失败的行
         </div>
       </div>
 

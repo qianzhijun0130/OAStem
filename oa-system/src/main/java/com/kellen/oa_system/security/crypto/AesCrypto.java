@@ -128,6 +128,49 @@ public final class AesCrypto {
         }
     }
 
+    /**
+     * 盲索引：对明文生成<b>确定性</b>摘要，用于「等值查询」而不能反推明文。
+     *
+     * <p>为什么需要它：本类每次加密都用随机 IV，同一个身份证号两次写入得到<b>不同</b>密文，
+     * 于是「该身份证是否已建档」这类判断无法用 {@code WHERE id_card = ?} 完成——
+     * 密文既不等于任何可比对的值，也不能在 SQL 里解密。盲索引把这件事挪到应用层：
+     * 写入时同步落一列 {@code HMAC-SHA256(key, 规范化明文)}，查重时用同样方式算一遍再比。</p>
+     *
+     * <p>三个必须遵守的点：</p>
+     * <ol>
+     *   <li><b>必须带密钥</b>（HMAC 而不是裸 SHA-256）。身份证号空间小且可穷举，
+     *       裸哈希等于明文；HMAC 让没有密钥的人无法批量生成对照表。</li>
+     *   <li><b>先规范化再算</b>（去空格、字母转大写）。否则 {@code 110101199003071234}
+     *       与 {@code 11010119900307123x} 的大写形态会被当成两个人。</li>
+     *   <li><b>换密钥即失效</b>：与密文同理，密钥换掉后旧哈希全部对不上，
+     *       必须走「解密 → 重新算哈希」的迁移，不能只重算。</li>
+     * </ol>
+     *
+     * @return 64 位十六进制串；入参为空时返回 null（与「未填写」语义一致）
+     */
+    public String blindIndex(String plain) {
+        if (!StringUtils.hasText(plain)) {
+            return null;
+        }
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secretKey.getEncoded(), "HmacSHA256"));
+            byte[] digest = mac.doFinal(normalizeForIndex(plain).getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("盲索引计算失败", e);
+        }
+    }
+
+    /** 盲索引的规范化：去掉所有空白字符、字母统一大写 */
+    public static String normalizeForIndex(String plain) {
+        return plain == null ? null : plain.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+    }
+
     private static byte[] sha256(String rawKey) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(rawKey.getBytes(StandardCharsets.UTF_8));

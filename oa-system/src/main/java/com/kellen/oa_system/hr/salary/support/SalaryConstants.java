@@ -1,5 +1,6 @@
 package com.kellen.oa_system.hr.salary.support;
 
+import com.kellen.oa_system.hr.common.enums.LeaveTypeEnum;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Set;
@@ -38,9 +39,16 @@ public final class SalaryConstants {
     /** 员工异动类型：离职 */
     public static final int CHANGE_TYPE_RESIGN = 5;
 
-    /** 参与考勤扣款的假别（婚假/产假等法定假别不扣钱，由政策决定是否支付，不做扣款） */
-    public static final String LEAVE_PERSONAL = "事假";
-    public static final String LEAVE_SICK = "病假";
+    /**
+     * 参与考勤扣款的假别（婚假/产假等法定假别不扣钱，由政策决定是否支付，不做扣款）。
+     *
+     * <p><b>必须取自 {@link LeaveTypeEnum}</b>：这两个常量被当作 {@code leave_days_json}
+     * 的键去查天数，而那个 JSON 的键由考勤侧用同一个枚举生成。两边各写一份中文字面量时，
+     * 任何一侧改名都会让 {@code getOrDefault(..., 0)} 静默取到 0——
+     * 月汇总里明明有 3 天事假，工资条上扣款是 0，且不报任何错。</p>
+     */
+    public static final String LEAVE_PERSONAL = LeaveTypeEnum.PERSONAL.getLabel();
+    public static final String LEAVE_SICK = LeaveTypeEnum.SICK.getLabel();
 
     /** 核算引擎直接引用的编码，删掉会导致计算链路断裂 */
     public static final Set<String> BUILTIN_ITEM_CODES = Set.of(

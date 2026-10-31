@@ -15,7 +15,7 @@ from datetime import date
 from urllib.parse import quote
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "lib"))
-from xlib import ck, mysql, req, summary, token  # noqa: E402
+from xlib import DB, ck, mysql, mysql_exec, req, summary, token  # noqa: E402
 
 DEPT_TECH = 2
 ADMIN_ID = 1
@@ -204,6 +204,19 @@ def main():
        f"rows={len(schedules)}")
 
     # ============ 打卡 ============
+    # 前置：把「今天」钉成工作日。
+    #
+    # 批量排班按自然周把周末标成休息日（shift_id 为空），于是本脚本在周六/周日跑时，
+    # 「今日卡片已排班」及其后 8 条打卡断言会全红——而代码一行没变。
+    # 这类「日历决定成败」的假红灯最容易误导人，前置状态由用例自己建立。
+    mysql_exec(f"DELETE FROM {DB}.oa_attendance WHERE attendance_date='{TODAY}' "
+               f"AND user_id IN ({TECH_STAFF1},{TECH_STAFF2})")
+    mysql_exec(f"DELETE FROM {DB}.oa_shift_schedule WHERE schedule_date='{TODAY}' "
+               f"AND user_id IN ({TECH_STAFF1},{TECH_STAFF2})")
+    mysql_exec(f"INSERT INTO {DB}.oa_shift_schedule (user_id, schedule_date, shift_id, day_type, settled) "
+               f"VALUES ({TECH_STAFF1}, '{TODAY}', {shift_id}, 1, 0), "
+               f"({TECH_STAFF2}, '{TODAY}', {shift_id}, 1, 0)")
+
     code, body = req("GET", "/hr/attendance/today", tok=tech)
     today_info = body.get("data") or {}
     ck("今日卡片已排班", today_info.get("scheduled") is True, json.dumps(today_info, ensure_ascii=False)[:120])

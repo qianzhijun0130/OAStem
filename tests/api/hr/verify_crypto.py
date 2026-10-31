@@ -11,7 +11,9 @@ ADMIN_ID, ADMIN_NAME = 1, "admin"
 STAFF_ID, STAFF_NAME = 101809, "tech_staff1"      # 普通员工（被操作对象）
 OTHER_ID, OTHER_NAME = 101810, "tech_staff2"      # 无关员工（越权校验）
 
-ID_CARD = "110101199003071234"
+# 必须用「校验码正确」的号码：BIZ-OPT-09 起档案保存会校验校验码，
+# 旧值 …1234 的校验码应为 3，用它会让「HR 更新档案成功」直接 400。
+ID_CARD = "110101199003071233"
 BANK = "6222021234567890123"
 SOCIAL = "SH12345678"
 FUND = "GJJ87654321"
@@ -54,7 +56,9 @@ print("== 4. 本人读取为掩码 ==")
 st, body = X.req("GET", f"/hr/employee/{STAFF_ID}", tok=staff)
 d = body.get("data") or {}
 X.ck("本人不可看敏感原文", d.get("canViewSensitive") is False)
-X.ck("idCard 已掩码", d.get("idCard") == "110***********1234", f"got={d.get('idCard')}")
+# 期望值由 ID_CARD 推导，避免改号码时还要同步改字面量
+X.ck("idCard 已掩码", d.get("idCard") == ID_CARD[:3] + "*" * 11 + ID_CARD[-4:],
+     f"got={d.get('idCard')}")
 X.ck("bankAccount 已掩码", d.get("bankAccount") == "**** **** **** 0123", f"got={d.get('bankAccount')}")
 
 print("== 5. 越权：他人档案 403 ==")

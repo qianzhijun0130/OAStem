@@ -83,6 +83,17 @@ public class User extends AuditEntity {
     @TableField(typeHandler = EncryptedStringTypeHandler.class)
     private String idCard;
 
+    /**
+     * 身份证盲索引（HMAC-SHA256 的十六进制串，非密文、不可反推）。
+     *
+     * <p>存在的原因：{@link #idCard} 每次加密用随机 IV，同一号码两次写入密文不同，
+     * 所以「该身份证是否已建档」无法用等值查询完成。写入时同步算一列确定性摘要即可比对。</p>
+     *
+     * <p>由业务代码显式写入（不挂 TypeHandler）：它本身不是敏感数据，而且需要能参与
+     * {@code WHERE id_card_hash = ?}。改身份证时必须同步改它，否则查重会漏。</p>
+     */
+    private String idCardHash;
+
     private LocalDate birthDate;
 
     /** 婚姻状况：1未婚 2已婚 3离异 4丧偶 */

@@ -80,4 +80,34 @@ public class UserSaveRequest {
     @Min(value = 0, message = "状态只能是 0禁用 1启用 2锁定")
     @Max(value = 2, message = "状态只能是 0禁用 1启用 2锁定")
     private Integer status;
+
+    // ------------------------------------------------------------------
+    // 建档扩展字段（BIZ-OPT-09）
+    //
+    // 以下几个字段原先只能进档案页逐个补录，导致批量入职时「导完还要再点开每个人」。
+    // 放到保存请求里后，导入与手工新增走同一条写入链路，不会出现「导入的没算试用期、
+    // 手工加的算了」这种两套口径。
+    //
+    // 只在<b>新增</b>时生效；编辑档案仍走 EmployeeProfileRequest（那里有变更留痕与
+    // 任职状态机校验，不能绕过）。
+    // ------------------------------------------------------------------
+
+    /** 身份证号（明文入参；落库由 TypeHandler 加密，同时自动算盲索引用于查重） */
+    @Pattern(regexp = "^$|^[0-9]{17}[0-9Xx]$", message = "身份证号格式不正确")
+    private String idCard;
+
+    /** 出生日期；留空时按身份证号补算 */
+    private LocalDate birthDate;
+
+    /** 直属上级用户 ID */
+    private Long directLeaderId;
+
+    /** 首次参加工作时间（年假累计工龄用） */
+    private LocalDate workStartDate;
+
+    /** 试用期截止日；由「入职日 + 试用期月数 − 1 天」计算，不接受客户端直接指定 */
+    private LocalDate probationEndDate;
+
+    /** 任职状态：1待入职 2试用 3正式 4待离职 5已离职 6退休；留空时按入职日期判定 */
+    private Integer employmentStatus;
 }

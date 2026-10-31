@@ -27,4 +27,14 @@ public interface UserMapper extends BaseMapper<User> {
             + "</script>")
     Long countByWorkNumberIncludingDeleted(@Param("workNumber") String workNumber,
                                            @Param("excludeUserId") Long excludeUserId);
+
+    /**
+     * 一次性取出全部已占用工号，<b>含已逻辑删除的用户</b>。
+     *
+     * <p>批量导入用：逐行调 {@link #countByWorkNumberIncludingDeleted} 会让
+     * 5000 行变成 5000 次往返。这里一次取回，之后在内存里比对即可。
+     * 工号总量等于历史员工数（含离职），量级在万以内，内存占用可忽略。</p>
+     */
+    @Select("SELECT work_number FROM oa_user WHERE work_number IS NOT NULL AND work_number <> ''")
+    java.util.List<String> selectAllWorkNumbersIncludingDeleted();
 }

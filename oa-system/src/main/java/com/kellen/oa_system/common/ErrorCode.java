@@ -41,6 +41,10 @@ public enum ErrorCode {
     ONLINE_USER_NOT_FOUND(1114, "该用户当前不在线"),
     ONLINE_KICK_SELF_FORBIDDEN(1115, "不能强制下线当前登录账号"),
     ONLINE_KICK_UNAVAILABLE(1116, "Redis 不可用，暂时无法执行强制下线"),
+    /** 身份证格式错误：18 位 + 出生日期合法 + 校验码正确（见 IdCardUtil） */
+    ID_CARD_INVALID(1117, "身份证号格式不正确"),
+    /** 身份证已建档：message 会带上已存在档案的工号，便于 HR 直接定位重复源 */
+    ID_CARD_DUPLICATE(1118, "该身份证已存在档案"),
 
     // ---------- 业务错误：组织架构与权限 2xxx ----------
     DEPT_NOT_FOUND(2001, "部门不存在"),

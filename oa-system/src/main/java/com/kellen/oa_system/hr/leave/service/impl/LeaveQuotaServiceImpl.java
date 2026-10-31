@@ -3,6 +3,7 @@ package com.kellen.oa_system.hr.leave.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.kellen.oa_system.common.BizException;
 import com.kellen.oa_system.common.ErrorCode;
+import com.kellen.oa_system.hr.common.enums.LeaveTypeEnum;
 import com.kellen.oa_system.hr.common.support.HrDataScopeSupport;
 import com.kellen.oa_system.hr.leave.dto.QuotaAdjustRequest;
 import com.kellen.oa_system.hr.leave.entity.LeaveQuota;
@@ -42,8 +43,8 @@ public class LeaveQuotaServiceImpl implements LeaveQuotaService {
     /** 调休 */
     private static final int TYPE_COMPENSATORY = 8;
 
-    private static final Map<Integer, String> TYPE_LABEL = Map.of(
-            1, "事假", 2, "病假", 3, "年假", 4, "婚假", 5, "产假", 6, "陪产假", 7, "丧假", 8, "调休");
+    /** 假别中文名：统一取自 {@link LeaveTypeEnum}，避免多处各写一份（见该类注释） */
+    private static final Map<Integer, String> TYPE_LABEL = LeaveTypeEnum.labelMap();
 
     private final LeaveQuotaMapper quotaMapper;
     private final UserMapper userMapper;
